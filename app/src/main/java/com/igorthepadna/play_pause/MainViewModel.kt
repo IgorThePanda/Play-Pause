@@ -53,6 +53,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentPlayingId = MutableStateFlow(-1L)
     val currentPlayingId = _currentPlayingId.asStateFlow()
 
+    private val _currentLyrics = MutableStateFlow<String?>(null)
+    val currentLyrics = _currentLyrics.asStateFlow()
+
     private val _playlists = MutableStateFlow<List<Playlist>>(listOf(
         Playlist(id = "favorites", name = "Favorites", isFavorite = true)
     ))
@@ -233,6 +236,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadLyricsForCurrentSong() {
+        val player = _player.value ?: return
+        val currentItem = player.currentMediaItem ?: return
+        val mediaId = currentItem.mediaId.toLongOrNull() ?: return
+
+        // Find the song by ID to get the file path
+        val song = _songs.value.find { it.id == mediaId } ?: return
+        
+        viewModelScope.launch {
+            _currentLyrics.value = repository.getLyrics(song.path)
+        }
+    }
+
     fun addPlayNext(song: Song) {
         val player = _player.value ?: return
         val index = if (player.mediaItemCount > 0) player.currentMediaItemIndex + 1 else 0
@@ -297,6 +313,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             _currentPlayingId.value = mediaItem?.mediaId?.toLongOrNull() ?: -1L
+            _currentLyrics.value = null // Reset lyrics for new song
         }
     }
 
@@ -305,6 +322,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _player.value = p
         p?.addListener(playerListener)
         _currentPlayingId.value = p?.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L
+        _currentLyrics.value = null
     }
 
     override fun onCleared() {

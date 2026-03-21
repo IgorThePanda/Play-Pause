@@ -2,6 +2,7 @@ package com.igorthepadna.play_pause.data
 
 import android.content.ContentUris
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
@@ -96,7 +97,8 @@ class MusicRepository(private val context: Context) {
                     trackNumber = trackNumber,
                     albumId = albumId,
                     year = year,
-                    bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null
+                    bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null,
+                    lyrics = null 
                 )
                 
                 songList.add(song)
@@ -106,6 +108,34 @@ class MusicRepository(private val context: Context) {
         cachedAlbums = null
         cachedArtists = null
         songList
+    }
+
+    suspend fun getLyrics(path: String): String? = withContext(Dispatchers.IO) {
+        if (path.isEmpty()) return@withContext null
+        val file = File(path)
+        if (!file.exists()) return@withContext null
+
+        // 1. Check for companion .lrc file
+        val lrcFile = File(file.parent, "${file.nameWithoutExtension}.lrc")
+        if (lrcFile.exists()) {
+            try {
+                return@withContext lrcFile.readText()
+            } catch (e: Exception) {
+                // fallback to embedded
+            }
+        }
+
+        // 2. Check for embedded lyrics
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(path)
+            // METADATA_KEY_LYRICS constant value is 23
+            return@withContext retriever.extractMetadata(23)
+        } catch (e: Exception) {
+            null
+        } finally {
+            try { retriever.release() } catch (e: Exception) {}
+        }
     }
 
     suspend fun getAlbums(songs: List<Song>): List<Album> = withContext(Dispatchers.IO) {

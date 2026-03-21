@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -20,7 +21,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -124,10 +127,151 @@ fun LibraryScreen(
                 onPlayArtist = { onPlaySongs(detailItem.songs, 0) }
             )
             else -> Box(modifier = Modifier.fillMaxSize()) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Spacer(modifier = Modifier.height(84.dp).statusBarsPadding())
+                val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+                val listTopPadding = 84.dp + statusBarPadding
+                val bottomPadding = 140.dp
+                val contentPadding = PaddingValues(top = listTopPadding, bottom = bottomPadding, start = 16.dp, end = 16.dp)
+                val scrollbarPadding = PaddingValues(bottom = bottomPadding)
 
-                    // Scanning / Refreshing Indicator
+                if (filteredSongs.isEmpty() && hasPermission && !isRefreshing) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(if (searchQuery.isEmpty()) "No items found." else "No matches found.")
+                    }
+                } else if (!hasPermission) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Button(onClick = {
+                            val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_IMAGES)
+                            } else {
+                                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                            }
+                            permissionLauncher.launch(permissions)
+                        }) { Text("Grant Permissions") }
+                    }
+                } else {
+                    when (currentFilter) {
+                        LibraryFilter.ALBUMS -> Box(modifier = Modifier.fillMaxSize()) {
+                            LazyVerticalGrid(
+                                state = gridState,
+                                columns = GridCells.Fixed(2),
+                                contentPadding = contentPadding,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(24.dp),
+                                modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
+                            ) {
+                                items(sortedAlbums, key = { it.id }) { album ->
+                                    AlbumCard(album = album, onClick = { viewModel?.setSelectedAlbumId(album.id) })
+                                }
+                            }
+                            ScrollbarLabel(
+                                state = gridState,
+                                padding = scrollbarPadding,
+                                labelProvider = { index ->
+                                    val album = sortedAlbums.getOrNull(index) ?: return@ScrollbarLabel ""
+                                    when(tabSortSettings.sortType) {
+                                        SortType.TITLE -> album.title.firstOrNull()?.uppercase()?.toString() ?: ""
+                                        SortType.ARTIST -> album.artist.firstOrNull()?.uppercase()?.toString() ?: ""
+                                        else -> ""
+                                    }
+                                }
+                            )
+                        }
+                        LibraryFilter.ARTISTS -> Box(modifier = Modifier.fillMaxSize()) {
+                            LazyVerticalGrid(
+                                state = gridState,
+                                columns = GridCells.Fixed(2),
+                                contentPadding = contentPadding,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(24.dp),
+                                modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
+                            ) {
+                                items(sortedArtists, key = { it.name }) { artist ->
+                                    ArtistCard(artist = artist, onClick = { viewModel?.setSelectedArtistName(artist.name) })
+                                }
+                            }
+                            ScrollbarLabel(
+                                state = gridState,
+                                padding = scrollbarPadding,
+                                labelProvider = { index ->
+                                    val artist = sortedArtists.getOrNull(index) ?: return@ScrollbarLabel ""
+                                    artist.name.firstOrNull()?.uppercase()?.toString() ?: ""
+                                }
+                            )
+                        }
+                        else -> Box(modifier = Modifier.fillMaxSize()) {
+                            LazyColumn(
+                                state = listState,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = contentPadding,
+                                modifier = Modifier.fillMaxSize().verticalScrollbar(listState, padding = scrollbarPadding)
+                            ) {
+                                itemsIndexed(filteredSongs, key = { _, song -> song.id }) { index, song ->
+                                    SongItem(
+                                        song = song,
+                                        isPlaying = song.id == currentPlayingId,
+                                        onClick = { onPlaySongs(filteredSongs, index) },
+                                        onDetailsClick = {
+                                            selectedSongForDetails = song
+                                            showDetailsSheet = true
+                                        },
+                                        onSwipePlayNext = {
+                                            viewModel?.addPlayNext(song)
+                                            onShowMessage("Added to Play Next")
+                                        },
+                                        onSwipeAddToPlaylist = {
+                                            selectedSongForPlaylist = song
+                                            showPlaylistSheet = true
+                                        }
+                                    )
+                                }
+                            }
+                            ScrollbarLabel(
+                                state = listState,
+                                padding = scrollbarPadding,
+                                labelProvider = { index ->
+                                    val song = filteredSongs.getOrNull(index) ?: return@ScrollbarLabel ""
+                                    when(tabSortSettings.sortType) {
+                                        SortType.TITLE -> song.title.firstOrNull()?.uppercase()?.toString() ?: ""
+                                        SortType.ARTIST -> song.artist.firstOrNull()?.uppercase()?.toString() ?: ""
+                                        else -> ""
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // SUBTLE Edge Fades
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(statusBarPadding + 32.dp)
+                        .align(Alignment.TopCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                0.0f to MaterialTheme.colorScheme.background,
+                                0.6f to MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
+                                1.0f to Color.Transparent
+                            )
+                        )
+                )
+                
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                0.0f to Color.Transparent,
+                                0.4f to MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
+                                1.0f to MaterialTheme.colorScheme.background
+                            )
+                        )
+                )
+
+                // Scanning / Refreshing Indicator (Overlay)
+                Column(modifier = Modifier.fillMaxWidth().padding(top = listTopPadding)) {
                     AnimatedVisibility(
                         visible = isRefreshing,
                         enter = expandVertically() + fadeIn(),
@@ -160,119 +304,6 @@ fun LibraryScreen(
                                         "Scanning for new music...",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        if (filteredSongs.isEmpty() && hasPermission && !isRefreshing) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(if (searchQuery.isEmpty()) "No items found." else "No matches found.")
-                            }
-                        } else if (!hasPermission) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Button(onClick = {
-                                    val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_IMAGES)
-                                    } else {
-                                        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-                                    }
-                                    permissionLauncher.launch(permissions)
-                                }) { Text("Grant Permissions") }
-                            }
-                        } else {
-                            val bottomPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 140.dp)
-                            val scrollbarPadding = PaddingValues(bottom = 140.dp)
-                            
-                            when (currentFilter) {
-                                LibraryFilter.ALBUMS -> Box(modifier = Modifier.fillMaxSize()) {
-                                    LazyVerticalGrid(
-                                        state = gridState,
-                                        columns = GridCells.Fixed(2),
-                                        contentPadding = bottomPadding,
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(24.dp),
-                                        modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
-                                    ) {
-                                        items(sortedAlbums, key = { it.id }) { album ->
-                                            AlbumCard(album = album, onClick = { viewModel?.setSelectedAlbumId(album.id) })
-                                        }
-                                    }
-                                    ScrollbarLabel(
-                                        state = gridState,
-                                        padding = scrollbarPadding,
-                                        labelProvider = { index ->
-                                            val album = sortedAlbums.getOrNull(index) ?: return@ScrollbarLabel ""
-                                            when(tabSortSettings.sortType) {
-                                                SortType.TITLE -> album.title.firstOrNull()?.uppercase()?.toString() ?: ""
-                                                SortType.ARTIST -> album.artist.firstOrNull()?.uppercase()?.toString() ?: ""
-                                                else -> ""
-                                            }
-                                        }
-                                    )
-                                }
-                                LibraryFilter.ARTISTS -> Box(modifier = Modifier.fillMaxSize()) {
-                                    LazyVerticalGrid(
-                                        state = gridState,
-                                        columns = GridCells.Fixed(2),
-                                        contentPadding = bottomPadding,
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(24.dp),
-                                        modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
-                                    ) {
-                                        items(sortedArtists, key = { it.name }) { artist ->
-                                            ArtistCard(artist = artist, onClick = { viewModel?.setSelectedArtistName(artist.name) })
-                                        }
-                                    }
-                                    ScrollbarLabel(
-                                        state = gridState,
-                                        padding = scrollbarPadding,
-                                        labelProvider = { index ->
-                                            val artist = sortedArtists.getOrNull(index) ?: return@ScrollbarLabel ""
-                                            artist.name.firstOrNull()?.uppercase()?.toString() ?: ""
-                                        }
-                                    )
-                                }
-                                else -> Box(modifier = Modifier.fillMaxSize()) {
-                                    LazyColumn(
-                                        state = listState,
-                                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                                        contentPadding = bottomPadding,
-                                        modifier = Modifier.fillMaxSize().verticalScrollbar(listState, padding = scrollbarPadding)
-                                    ) {
-                                        itemsIndexed(filteredSongs, key = { _, song -> song.id }) { index, song ->
-                                            SongItem(
-                                                song = song,
-                                                isPlaying = song.id == currentPlayingId,
-                                                onClick = { onPlaySongs(filteredSongs, index) },
-                                                onDetailsClick = {
-                                                    selectedSongForDetails = song
-                                                    showDetailsSheet = true
-                                                },
-                                                onSwipePlayNext = {
-                                                    viewModel?.addPlayNext(song)
-                                                    onShowMessage("Added to Play Next")
-                                                },
-                                                onSwipeAddToPlaylist = {
-                                                    selectedSongForPlaylist = song
-                                                    showPlaylistSheet = true
-                                                }
-                                            )
-                                        }
-                                    }
-                                    ScrollbarLabel(
-                                        state = listState,
-                                        padding = scrollbarPadding,
-                                        labelProvider = { index ->
-                                            val song = filteredSongs.getOrNull(index) ?: return@ScrollbarLabel ""
-                                            when(tabSortSettings.sortType) {
-                                                SortType.TITLE -> song.title.firstOrNull()?.uppercase()?.toString() ?: ""
-                                                SortType.ARTIST -> song.artist.firstOrNull()?.uppercase()?.toString() ?: ""
-                                                else -> ""
-                                            }
-                                        }
                                     )
                                 }
                             }

@@ -1,6 +1,7 @@
 package com.igorthepadna.play_pause.ui.components
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.Orientation
@@ -8,6 +9,9 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -29,16 +34,21 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
+import com.igorthepadna.play_pause.MainViewModel
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.SquigglySlider
+import com.igorthepadna.play_pause.data.LyricLine
+import com.igorthepadna.play_pause.data.LyricWord
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.formatDuration
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
@@ -93,9 +103,181 @@ fun PlaybackShockWave(color: Color, isPlaying: Boolean) {
     }
 }
 
+private fun parseLrc(lrcContent: String?): List<LyricLine> {
+    if (lrcContent.isNullOrBlank()) return emptyList()
+    val lines = mutableListOf<LyricLine>()
+    val lineRegex = Regex("\\[(\\d+):(\\d+)([:.]\\d+)?\\](.*)")
+    val wordTimeRegex = Regex("<(\\d+):(\\d+)([:.]\\d+)?>")
+    
+    lrcContent.lines().forEach { line ->
+        lineRegex.find(line)?.let { match ->
+            val min = match.groupValues[1].toLong()
+            val secPart = match.groupValues[2]
+            val sec = secPart.toLong()
+            val msPart = match.groupValues[3]
+            var lineMs = 0L
+            if (msPart.isNotEmpty()) {
+                val numericPart = msPart.substring(1)
+                lineMs = if (msPart.startsWith(".")) {
+                    numericPart.padEnd(3, '0').take(3).toLong()
+                } else {
+                    numericPart.toLong() * 10
+                }
+            }
+            val lineTimestamp = (min * 60 * 1000) + (sec * 1000) + lineMs
+            var content = match.groupValues[4].trim()
+            
+            // Handle speaker tag [speaker:Name]
+            var speaker: String? = null
+            val speakerTagRegex = Regex("\\[speaker:(.*?)\\]")
+            speakerTagRegex.find(content)?.let { sMatch ->
+                speaker = sMatch.groupValues[1]
+                content = content.replace(sMatch.value, "").trim()
+            }
+            
+            if (speaker == null && content.contains(": ")) {
+                val potentialSpeaker = content.substringBefore(": ")
+                if (potentialSpeaker.length < 20 && !potentialSpeaker.contains("<")) {
+                    speaker = potentialSpeaker
+                    content = content.substringAfter(": ").trim()
+                }
+            }
+
+            val words = mutableListOf<LyricWord>()
+            val wordMatches = wordTimeRegex.findAll(content).toList()
+            val plainTexts = content.split(wordTimeRegex)
+            
+            if (wordMatches.isNotEmpty()) {
+                val initialText = plainTexts.getOrNull(0)?.trim() ?: ""
+                if (initialText.isNotEmpty()) {
+                    words.add(LyricWord(lineTimestamp, initialText))
+                }
+                
+                wordMatches.forEachIndexed { index, wMatch ->
+                    val wMin = wMatch.groupValues[1].toLong()
+                    val wSec = wMatch.groupValues[2].toLong()
+                    val wMsPart = wMatch.groupValues[3]
+                    var wMs = 0L
+                    if (wMsPart.isNotEmpty()) {
+                        val numericPart = wMsPart.substring(1)
+                        wMs = if (wMsPart.startsWith(".")) {
+                            numericPart.padEnd(3, '0').take(3).toLong()
+                        } else {
+                            numericPart.toLong() * 10
+                        }
+                    }
+                    val wTimestamp = (wMin * 60 * 1000) + (wSec * 1000) + wMs
+                    val wordText = plainTexts.getOrNull(index + 1)?.trim() ?: ""
+                    if (wordText.isNotEmpty()) {
+                        words.add(LyricWord(wTimestamp, wordText))
+                    }
+                }
+                content = words.joinToString(" ") { it.text }
+            }
+
+            if (content.isNotEmpty() || words.isNotEmpty()) {
+                lines.add(LyricLine(lineTimestamp, content, speaker, words))
+            }
+        }
+    }
+    return lines.sortedBy { it.timestamp }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LyricLineView(
+    line: LyricLine,
+    currentPosition: Long,
+    isActive: Boolean,
+    artworkColors: ArtworkColors,
+    onSeek: (Long) -> Unit
+) {
+    val lineAlpha by animateFloatAsState(if (isActive) 1f else 0.35f, label = "line_alpha")
+    val lineScale by animateFloatAsState(if (isActive) 1.05f else 0.95f, label = "line_scale")
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp)
+            .graphicsLayer {
+                alpha = lineAlpha
+                scaleX = lineScale
+                scaleY = lineScale
+            }
+    ) {
+        if (!line.speaker.isNullOrBlank()) {
+            Text(
+                text = line.speaker.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = artworkColors.secondary.copy(alpha = 0.8f),
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
+        
+        if (line.words.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.Center,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                line.words.forEachIndexed { index, word ->
+                    val nextWordStart = line.words.getOrNull(index + 1)?.timestamp ?: Long.MAX_VALUE
+                    val isWordCurrentlyPlaying = currentPosition in word.timestamp until nextWordStart
+                    val isWordPast = currentPosition >= word.timestamp
+                    
+                    val wordAlpha by animateFloatAsState(if (isWordCurrentlyPlaying) 1f else if (isWordPast) 0.8f else 0.4f, label = "word_alpha")
+                    val wordScale by animateFloatAsState(if (isWordCurrentlyPlaying) 1.15f else 1.0f, label = "word_scale")
+
+                    Text(
+                        text = word.text,
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = if (isWordCurrentlyPlaying) FontWeight.Black else FontWeight.Bold,
+                            lineHeight = 40.sp,
+                            letterSpacing = (-1).sp
+                        ),
+                        color = Color.White,
+                        modifier = Modifier
+                            .graphicsLayer {
+                                scaleX = wordScale
+                                scaleY = wordScale
+                                alpha = wordAlpha
+                            }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { onSeek(word.timestamp) }
+                            )
+                            .padding(horizontal = 4.dp)
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = line.text,
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 40.sp,
+                    letterSpacing = (-1).sp
+                ),
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onSeek(line.timestamp) }
+                    )
+            )
+        }
+    }
+}
+
 @Composable
 fun FullScreenPlayer(
     player: Player, 
+    viewModel: MainViewModel,
     useArtworkAccent: Boolean,
     offsetY: Float,
     onDismiss: () -> Unit,
@@ -116,8 +298,34 @@ fun FullScreenPlayer(
     val queueOffsetY = remember { Animatable(closedValue) }
     val isQueueVisible by remember { derivedStateOf { queueOffsetY.value < closedValue - 10f } }
 
+    var isLyricsVisible by remember { mutableStateOf(false) }
+    val rawLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
+    val parsedLyrics = remember(rawLyrics) { parseLrc(rawLyrics) }
+
+    var isPlaying by remember { mutableStateOf(player.isPlaying) }
+    var currentPosition by remember { mutableLongStateOf(player.currentPosition) }
+    var duration by remember { mutableLongStateOf(player.duration) }
+    var currentMediaItem by remember { mutableStateOf(player.currentMediaItem) }
+
+    val currentLyricIndex by remember(parsedLyrics, currentPosition) {
+        derivedStateOf {
+            val index = parsedLyrics.indexOfLast { it.timestamp <= currentPosition }
+            if (index == -1 && parsedLyrics.isNotEmpty()) 0 else index
+        }
+    }
+
+    val lyricsListState = rememberLazyListState()
+    
+    LaunchedEffect(currentLyricIndex) {
+        if (isLyricsVisible && currentLyricIndex != -1) {
+            lyricsListState.animateScrollToItem(currentLyricIndex)
+        }
+    }
+
     BackHandler(onBack = {
-        if (isQueueVisible) {
+        if (isLyricsVisible) {
+            isLyricsVisible = false
+        } else if (isQueueVisible) {
             scope.launch {
                 queueOffsetY.animateTo(closedValue, spring(stiffness = Spring.StiffnessLow))
             }
@@ -125,17 +333,6 @@ fun FullScreenPlayer(
             onDismiss()
         }
     })
-
-    var isPlaying by remember { mutableStateOf(player.isPlaying) }
-    var currentPosition by remember { mutableLongStateOf(player.currentPosition) }
-    var duration by remember { mutableLongStateOf(player.duration) }
-    var currentMediaItem by remember { mutableStateOf(player.currentMediaItem) }
-
-    var shuffleModeEnabled by remember { mutableStateOf(player.shuffleModeEnabled) }
-    var repeatMode by remember { mutableIntStateOf(player.repeatMode) }
-
-    var wasPlayingBeforeDrag by remember { mutableStateOf(false) }
-    var buttonCenter by remember { mutableStateOf(Offset.Zero) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -148,12 +345,6 @@ fun FullScreenPlayer(
                 currentPosition = 0L
                 duration = if (player.duration > 0) player.duration else 0L
             }
-            override fun onShuffleModeEnabledChanged(enabled: Boolean) {
-                shuffleModeEnabled = enabled
-            }
-            override fun onRepeatModeChanged(mode: Int) {
-                repeatMode = mode
-            }
         }
         player.addListener(listener)
         onDispose { player.removeListener(listener) }
@@ -162,10 +353,7 @@ fun FullScreenPlayer(
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPosition = if (player.currentPosition > 0) player.currentPosition else 0L
-            if (duration <= 0 && player.duration > 0) {
-                duration = player.duration
-            }
-            delay(500)
+            delay(50) 
         }
     }
 
@@ -184,23 +372,16 @@ fun FullScreenPlayer(
         )
     }
 
-    val bitrateStr = currentMediaItem?.mediaMetadata?.extras?.getString("bitrate") ?: "320 kbps"
-    val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
-
-    val qualityIcon = when {
-        bitrateValue >= 1000 -> Icons.Rounded.Album
-        bitrateValue >= 256 -> Icons.Rounded.HighQuality
-        else -> Icons.Rounded.Sd
-    }
+    var buttonCenter by remember { mutableStateOf(Offset.Zero) }
 
     val artScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.05f else 1.0f,
+        targetValue = if (isPlaying && !isLyricsVisible) 1.05f else 1.0f,
         animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessLow),
         label = "art_breathing"
     )
     
     val artCorner by animateDpAsState(
-        targetValue = if (isPlaying) 20.dp else 60.dp,
+        targetValue = if (isPlaying && !isLyricsVisible) 20.dp else 60.dp,
         animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
         label = "art_corner"
     )
@@ -266,25 +447,105 @@ fun FullScreenPlayer(
 
                 Spacer(modifier = Modifier.weight(0.5f))
 
-                Surface(
+                // CONTENT AREA (Artwork or Synced Lyrics)
+                Box(
                     modifier = Modifier
                         .aspectRatio(1f)
                         .fillMaxWidth(0.9f)
                         .graphicsLayer {
                             scaleX = artScale
                             scaleY = artScale
-                        }
-                        .clip(RoundedCornerShape(artCorner)),
-                    tonalElevation = 12.dp,
-                    shadowElevation = 24.dp
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    AsyncImage(
-                        model = currentMediaItem?.mediaMetadata?.artworkUri,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        error = painterResource(R.drawable.ic_launcher_foreground)
-                    )
+                    // Artwork with blur when lyrics shown
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(artCorner)),
+                        tonalElevation = 12.dp,
+                        shadowElevation = 24.dp
+                    ) {
+                        AsyncImage(
+                            model = currentMediaItem?.mediaMetadata?.artworkUri,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .blur(if (isLyricsVisible) 30.dp else 0.dp),
+                            contentScale = ContentScale.Crop,
+                            error = painterResource(R.drawable.ic_launcher_foreground)
+                        )
+                    }
+
+                    // EXPRESSIVE LYRICS OVERLAY (ENHANCED)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isLyricsVisible,
+                        enter = fadeIn(animationSpec = tween(600)) + scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessLow)),
+                        exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 1.2f, animationSpec = tween(400))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.3f))
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (parsedLyrics.isNotEmpty()) {
+                                LazyColumn(
+                                    state = lyricsListState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                                    contentPadding = PaddingValues(vertical = 140.dp)
+                                ) {
+                                    itemsIndexed(parsedLyrics) { index, lyric ->
+                                        LyricLineView(
+                                            line = lyric,
+                                            currentPosition = currentPosition,
+                                            isActive = index == currentLyricIndex,
+                                            artworkColors = artworkColors,
+                                            onSeek = { timestamp ->
+                                                player.seekTo(timestamp)
+                                                currentPosition = timestamp
+                                            }
+                                        )
+                                    }
+                                }
+                            } else if (!rawLyrics.isNullOrBlank()) {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    item {
+                                        Text(
+                                            text = rawLyrics!!,
+                                            style = MaterialTheme.typography.titleLarge.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                lineHeight = 32.sp
+                                            ),
+                                            color = Color.White,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier
+                                                .padding(16.dp)
+                                                .clickable { isLyricsVisible = false }
+                                        )
+                                    }
+                                }
+                            } else {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Rounded.MusicNote, null, modifier = Modifier.size(48.dp), tint = Color.White.copy(alpha = 0.6f))
+                                    Spacer(Modifier.height(16.dp))
+                                    Text(
+                                        "Lyrics unavailable",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.weight(3f))
@@ -326,13 +587,10 @@ fun FullScreenPlayer(
                         durationMillis = duration,
                         activeColor = artworkColors.secondary,
                         onDragStart = {
-                            wasPlayingBeforeDrag = player.isPlaying
                             player.pause()
                         },
                         onDragEnd = {
-                            if (wasPlayingBeforeDrag) {
-                                player.play()
-                            }
+                            player.play()
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -348,7 +606,7 @@ fun FullScreenPlayer(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-
+                        
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -356,6 +614,13 @@ fun FullScreenPlayer(
                                 .background(artworkColors.secondary.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
+                            val bitrateStr = currentMediaItem?.mediaMetadata?.extras?.getString("bitrate") ?: "320 kbps"
+                            val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
+                            val qualityIcon = when {
+                                bitrateValue >= 1000 -> Icons.Rounded.Album
+                                bitrateValue >= 256 -> Icons.Rounded.HighQuality
+                                else -> Icons.Rounded.Sd
+                            }
                             Icon(qualityIcon, null, modifier = Modifier.size(14.dp), tint = artworkColors.secondary)
                             Text(bitrateStr, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = artworkColors.secondary)
                         }
@@ -442,19 +707,42 @@ fun FullScreenPlayer(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        var shuffleModeEnabledLocal by remember { mutableStateOf(player.shuffleModeEnabled) }
+                        var repeatModeLocal by remember { mutableIntStateOf(player.repeatMode) }
+                        
+                        DisposableEffect(player) {
+                            val listener = object : Player.Listener {
+                                override fun onShuffleModeEnabledChanged(enabled: Boolean) { shuffleModeEnabledLocal = enabled }
+                                override fun onRepeatModeChanged(mode: Int) { repeatModeLocal = mode }
+                            }
+                            player.addListener(listener)
+                            onDispose { player.removeListener(listener) }
+                        }
+
                         IconButton(onClick = { player.shuffleModeEnabled = !player.shuffleModeEnabled }) {
-                            Icon(Icons.Rounded.Shuffle, null, tint = if (shuffleModeEnabled) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Rounded.Shuffle, null, tint = if (shuffleModeEnabledLocal) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         IconButton(onClick = {
-                            player.repeatMode = when (repeatMode) {
+                            player.repeatMode = when (repeatModeLocal) {
                                 Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
                                 Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
                                 else -> Player.REPEAT_MODE_OFF
                             }
                         }) {
-                            Icon(if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, null, tint = if (repeatMode != Player.REPEAT_MODE_OFF) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(if (repeatModeLocal == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, null, tint = if (repeatModeLocal != Player.REPEAT_MODE_OFF) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        IconButton(onClick = { }) { Icon(Icons.Rounded.Lyrics, null) }
+                        IconButton(onClick = { 
+                            isLyricsVisible = !isLyricsVisible
+                            if (isLyricsVisible) {
+                                viewModel.loadLyricsForCurrentSong()
+                            }
+                        }) {
+                            Icon(
+                                Icons.Rounded.Lyrics, 
+                                null,
+                                tint = if (isLyricsVisible) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                            ) 
+                        }
                         IconButton(onClick = { }) { Icon(Icons.Rounded.Add, null) }
                         IconButton(onClick = { }) { Icon(Icons.Rounded.MoreHoriz, null) }
                     }

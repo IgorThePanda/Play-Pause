@@ -12,6 +12,20 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
 
 @Immutable
+data class LyricWord(
+    val timestamp: Long,
+    val text: String
+)
+
+@Immutable
+data class LyricLine(
+    val timestamp: Long,
+    val text: String,
+    val speaker: String? = null,
+    val words: List<LyricWord> = emptyList()
+)
+
+@Immutable
 data class Song(
     val id: Long,
     val title: String,
@@ -29,7 +43,8 @@ data class Song(
     val genre: String? = null,
     val bitrate: String? = null,
     val channels: String? = null,
-    val year: Int = 0
+    val year: Int = 0,
+    val lyrics: String? = null
 )
 
 @Immutable

@@ -394,6 +394,7 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
         if (activeMediaItem != null && player != null) {
             FullScreenPlayer(
                 player = player,
+                viewModel = viewModel,
                 useArtworkAccent = useArtworkAccent,
                 offsetY = playerOffsetY.value,
                 onDismiss = { viewModel.setPlayerFullScreen(false) },
