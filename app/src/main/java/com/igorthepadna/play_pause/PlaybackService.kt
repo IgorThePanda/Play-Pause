@@ -25,8 +25,9 @@ class PlaybackService : MediaSessionService() {
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .setUsage(C.USAGE_MEDIA)
                     .build(),
-                true
+                true // handleAudioFocus
             )
+            .setHandleAudioBecomingNoisy(true) // Pauses music when headphones are disconnected
             .build()
 
         // Handle reshuffle logic while preserving "Play Next" items and current item positions

@@ -114,26 +114,19 @@ class MusicRepository(private val context: Context) {
         val albums = songs.groupBy { it.albumId }.map { (albumId, albumSongs) ->
             val firstSong = albumSongs.first()
             val albumDir = File(firstSong.path).parentFile
-
+            
             var albumArtworkUri: Uri? = null
             var hasFolderCover = false
-
+            
+            // Faster check: instead of listFiles(), check common names first
+            val extensions = listOf("jpg", "png", "jpeg", "webp")
             if (albumDir?.isDirectory == true) {
-                val files = albumDir.listFiles()
-                if (files != null) {
-                    val extensions = setOf("jpg", "png", "jpeg", "webp")
-                    val commonNames = setOf("cover", "folder", "front", "album")
-
-                    val fileMap = files.filter { it.isFile }.associateBy { it.name.lowercase().trim() }
-
-                    outer@for (name in commonNames) {
-                        for (ext in extensions) {
-                            fileMap["$name.$ext"]?.let {
-                                albumArtworkUri = it.toUri()
-                                hasFolderCover = true
-                                break@outer
-                            }
-                        }
+                for (ext in extensions) {
+                    val cover = File(albumDir, "cover.$ext")
+                    if (cover.exists()) {
+                        albumArtworkUri = cover.toUri()
+                        hasFolderCover = true
+                        break
                     }
                 }
             }
@@ -161,11 +154,12 @@ class MusicRepository(private val context: Context) {
         if (cachedArtists != null && songs === cachedSongs && albums === cachedAlbums) return@withContext cachedArtists!!
 
         val albumMap = albums.groupBy { it.artist }
-        val dirCache = mutableMapOf<String, Map<String, File>>()
-
+        
         val artists = songs.groupBy { it.artist }.map { (name, artistSongs) ->
             val artistAlbums = albumMap[name] ?: emptyList()
-            val thumbnailUri = findArtistCoverOptimized(name, artistSongs, dirCache) ?: artistAlbums.firstOrNull { it.artworkUri != null }?.artworkUri
+            
+            // Search for artist cover with a more efficient strategy
+            val thumbnailUri = findArtistCover(name, artistSongs) ?: artistAlbums.firstOrNull { it.artworkUri != null }?.artworkUri
 
             Artist(
                 name = name,
@@ -180,73 +174,38 @@ class MusicRepository(private val context: Context) {
         artists
     }
 
-    private fun findArtistCoverOptimized(
-        artistName: String,
-        songs: List<Song>,
-        dirCache: MutableMap<String, Map<String, File>>
-    ): Uri? {
-        val extensions = setOf("jpg", "jpeg", "png", "webp")
-        val genericNames = setOf("cover", "artist", "folder", "front")
-
-        val artistLower = artistName.lowercase().trim()
-        val artistSanitized = artistLower.replace(Regex("[^a-z0-9]"), "")
-        val artistUnderscore = artistLower.replace(" ", "_")
-
-        // Sample first song from each album
-        val sampleSongs = songs.distinctBy { it.albumId }.take(10)
-
-        for (song in sampleSongs) {
-            val albumDir = File(song.path).parentFile ?: continue
-
-            var currentDir: File? = albumDir
+    private fun findArtistCover(artistName: String, songs: List<Song>): Uri? {
+        val extensions = listOf("jpg", "jpeg", "png", "webp")
+        // Check for artist.jpg, folder.jpg etc. directly which is faster than listFiles()
+        val commonNames = listOf("artist", "folder", "cover", "front")
+        val artistLower = artistName.lowercase()
+        
+        val checkedDirs = mutableSetOf<String>()
+        
+        for (song in songs.take(3)) {
+            var currentDir = File(song.path).parentFile
             var depth = 0
-            while (currentDir != null && depth < 3) {
-                val path = currentDir.absolutePath
-                val fileMap = dirCache.getOrPut(path) {
-                    currentDir?.listFiles()?.filter { it.isFile }?.associateBy { it.name.lowercase().trim() } ?: emptyMap()
-                }
-
-                if (fileMap.isNotEmpty()) {
-                    // 1. Priority: [ArtistName].* variations
-                    for (ext in extensions) {
-                        // Exact match
-                        fileMap["$artistLower.$ext"]?.let { return it.toUri() }
-                        // Underscore match (e.g., 50_cent.jpg)
-                        fileMap["$artistUnderscore.$ext"]?.let { return it.toUri() }
-                        // Sanitized match (e.g., 50cent.jpg)
-                        fileMap["$artistSanitized.$ext"]?.let { return it.toUri() }
-                    }
-
-                    // 2. Priority: artist.*
-                    for (ext in extensions) {
-                        fileMap["artist.$ext"]?.let { return it.toUri() }
-                    }
-
-                    // 3. Priority: generic names in parent or matching folder
-                    val dirNameLower = currentDir.name.lowercase().trim()
-                    val dirNameSanitized = dirNameLower.replace(Regex("[^a-z0-9]"), "")
-
-                    val isLikelyArtistFolder = dirNameLower == artistLower ||
-                                              dirNameLower == artistUnderscore ||
-                                              dirNameSanitized == artistSanitized ||
-                                              dirNameLower.contains(artistLower) ||
-                                              depth > 0
-
-                    if (isLikelyArtistFolder) {
-                        for (name in genericNames) {
-                            if (name == "artist") continue
-                            for (ext in extensions) {
-                                fileMap["$name.$ext"]?.let { return it.toUri() }
-                            }
+            while (currentDir != null && depth < 2) {
+                val dirPath = currentDir.absolutePath
+                if (checkedDirs.add(dirPath)) {
+                    // 1. Try common names directly (fastest)
+                    for (name in commonNames) {
+                        for (ext in extensions) {
+                            val file = File(currentDir, "$name.$ext")
+                            if (file.exists()) return file.toUri()
                         }
                     }
+                    // 2. Try artist name directly
+                    for (ext in extensions) {
+                        val file = File(currentDir, "$artistLower.$ext")
+                        if (file.exists()) return file.toUri()
+                    }
+                    
+                    // 3. Fallback to listFiles if directories are small (optional, but let's stick to fast checks)
                 }
-
                 currentDir = currentDir.parentFile
                 depth++
-
-                val dirPathLower = currentDir?.absolutePath?.lowercase() ?: ""
-                if (dirPathLower.endsWith("/music") || dirPathLower.endsWith("/download") || dirPathLower.endsWith("/downloads") || dirPathLower.endsWith("/0")) break
+                if (dirPath.lowercase().endsWith("/music") || dirPath.lowercase().endsWith("/download")) break
             }
         }
         return null

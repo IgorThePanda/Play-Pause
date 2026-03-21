@@ -3,11 +3,14 @@ package com.igorthepadna.play_pause.ui.components
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,13 +20,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -39,6 +43,8 @@ import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.formatDuration
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @Composable
 fun PlaybackShockWave(color: Color, isPlaying: Boolean) {
@@ -87,14 +93,38 @@ fun PlaybackShockWave(color: Color, isPlaying: Boolean) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullScreenPlayer(
     player: Player, 
     useArtworkAccent: Boolean,
-    onDismiss: () -> Unit
+    offsetY: Float,
+    onDismiss: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragStopped: (Float) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    BackHandler(onBack = onDismiss)
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+    
+    val topPaddingPx = with(density) { 160.dp.toPx() }
+    val peekingHeightPx = with(density) { 72.dp.toPx() }
+    val closedValue = screenHeightPx - peekingHeightPx
+    
+    val scope = rememberCoroutineScope()
+    
+    val queueOffsetY = remember { Animatable(closedValue) }
+    val isQueueVisible by remember { derivedStateOf { queueOffsetY.value < closedValue - 10f } }
+
+    BackHandler(onBack = {
+        if (isQueueVisible) {
+            scope.launch {
+                queueOffsetY.animateTo(closedValue, spring(stiffness = Spring.StiffnessLow))
+            }
+        } else {
+            onDismiss()
+        }
+    })
 
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var currentPosition by remember { mutableLongStateOf(player.currentPosition) }
@@ -104,13 +134,8 @@ fun FullScreenPlayer(
     var shuffleModeEnabled by remember { mutableStateOf(player.shuffleModeEnabled) }
     var repeatMode by remember { mutableIntStateOf(player.repeatMode) }
 
-    var showQueueSheet by remember { mutableStateOf(false) }
-    val queueSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
     var wasPlayingBeforeDrag by remember { mutableStateOf(false) }
-    
     var buttonCenter by remember { mutableStateOf(Offset.Zero) }
-    val density = LocalDensity.current
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -175,17 +200,27 @@ fun FullScreenPlayer(
     )
     
     val artCorner by animateDpAsState(
-        targetValue = if (isPlaying) 28.dp else 80.dp,
+        targetValue = if (isPlaying) 20.dp else 60.dp,
         animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
         label = "art_corner"
     )
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .offset { IntOffset(0, (screenHeightPx + offsetY).roundToInt()) }
+            .draggable(
+                orientation = Orientation.Vertical,
+                state = rememberDraggableState { delta ->
+                    onDrag(delta)
+                },
+                onDragStopped = { velocity ->
+                    onDragStopped(velocity)
+                }
+            ),
         color = MaterialTheme.colorScheme.surface
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Subtle dynamic glow background
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -197,13 +232,8 @@ fun FullScreenPlayer(
                     )
             )
 
-            // Wave background layer
             if (buttonCenter != Offset.Zero) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(-1f)
-                ) {
+                Box(modifier = Modifier.fillMaxSize().zIndex(-1f)) {
                     Box(
                         modifier = Modifier.offset {
                             val waveHalfSize = with(density) { 50.dp.toPx() }
@@ -222,42 +252,20 @@ fun FullScreenPlayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .padding(horizontal = 24.dp, vertical = 24.dp),
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Top Bar
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainer, CircleShape)
-                    ) {
-                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close", modifier = Modifier.size(32.dp))
-                    }
-                    
-                    IconButton(
-                        onClick = { showQueueSheet = true },
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainer, CircleShape)
-                    ) {
-                        Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Queue", modifier = Modifier.size(24.dp))
-                    }
-                }
+                // Subtle handle for dragging
+                Box(
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .width(40.dp)
+                        .height(4.dp)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f), CircleShape)
+                )
 
-                if (showQueueSheet) {
-                    ModalBottomSheet(
-                        onDismissRequest = { showQueueSheet = false },
-                        sheetState = queueSheetState
-                    ) {
-                        QueueContent(player)
-                    }
-                }
+                Spacer(modifier = Modifier.weight(0.5f))
 
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Artwork
                 Surface(
                     modifier = Modifier
                         .aspectRatio(1f)
@@ -279,9 +287,8 @@ fun FullScreenPlayer(
                     )
                 }
 
-                Spacer(modifier = Modifier.weight(3f)) // Pushed typography significantly down as requested
+                Spacer(modifier = Modifier.weight(3f))
 
-                // Typography
                 Column(
                     horizontalAlignment = Alignment.Start,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
@@ -307,7 +314,6 @@ fun FullScreenPlayer(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Slider and Timers
                 Column(modifier = Modifier.fillMaxWidth()) {
                     SquigglySlider(
                         value = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f,
@@ -350,18 +356,8 @@ fun FullScreenPlayer(
                                 .background(artworkColors.secondary.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
-                            Icon(
-                                qualityIcon,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = artworkColors.secondary
-                            )
-                            Text(
-                                text = bitrateStr,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = artworkColors.secondary
-                            )
+                            Icon(qualityIcon, null, modifier = Modifier.size(14.dp), tint = artworkColors.secondary)
+                            Text(bitrateStr, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = artworkColors.secondary)
                         }
 
                         Text(
@@ -375,20 +371,19 @@ fun FullScreenPlayer(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Main Controls
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { player.seekToPrevious() }, modifier = Modifier.size(64.dp)) {
-                        Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(48.dp))
+                        Icon(Icons.Rounded.SkipPrevious, null, modifier = Modifier.size(48.dp))
                     }
 
                     Spacer(modifier = Modifier.width(24.dp))
 
                     val playPauseCorner by animateDpAsState(
-                        targetValue = if (isPlaying) 20.dp else 48.dp,
+                        targetValue = if (isPlaying) 16.dp else 40.dp,
                         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
                         label = "corner"
                     )
@@ -400,7 +395,6 @@ fun FullScreenPlayer(
                     )
 
                     Box(
-                        contentAlignment = Alignment.Center,
                         modifier = Modifier.onGloballyPositioned { coordinates ->
                             val center = coordinates.positionInRoot() + Offset(coordinates.size.width / 2f, coordinates.size.height / 2f)
                             buttonCenter = center
@@ -410,12 +404,10 @@ fun FullScreenPlayer(
                             onClick = { if (isPlaying) player.pause() else player.play() },
                             shape = RoundedCornerShape(playPauseCorner),
                             color = artworkColors.secondary,
-                            modifier = Modifier
-                                .size(100.dp)
-                                .graphicsLayer {
-                                    scaleX = playPauseScale
-                                    scaleY = playPauseScale
-                                },
+                            modifier = Modifier.size(100.dp).graphicsLayer {
+                                scaleX = playPauseScale
+                                scaleY = playPauseScale
+                            },
                             tonalElevation = 12.dp,
                             shadowElevation = 16.dp,
                             border = BorderStroke(2.dp, Color.White.copy(alpha = 0.2f))
@@ -434,61 +426,114 @@ fun FullScreenPlayer(
                     Spacer(modifier = Modifier.width(24.dp))
 
                     IconButton(onClick = { player.seekToNext() }, modifier = Modifier.size(64.dp)) {
-                        Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(48.dp))
+                        Icon(Icons.Rounded.SkipNext, null, modifier = Modifier.size(48.dp))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Bottom Controls
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    shape = CircleShape,
+                    color = artworkColors.secondary.copy(alpha = 0.08f),
+                    modifier = Modifier.padding(horizontal = 8.dp)
                 ) {
-                    IconButton(
-                        onClick = { player.shuffleModeEnabled = !player.shuffleModeEnabled }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Rounded.Shuffle, 
-                            contentDescription = "Shuffle",
-                            tint = if (shuffleModeEnabled) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    IconButton(
-                        onClick = {
+                        IconButton(onClick = { player.shuffleModeEnabled = !player.shuffleModeEnabled }) {
+                            Icon(Icons.Rounded.Shuffle, null, tint = if (shuffleModeEnabled) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = {
                             player.repeatMode = when (repeatMode) {
                                 Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
                                 Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
                                 else -> Player.REPEAT_MODE_OFF
                             }
+                        }) {
+                            Icon(if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, null, tint = if (repeatMode != Player.REPEAT_MODE_OFF) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    ) {
-                        Icon(
-                            imageVector = when (repeatMode) {
-                                Player.REPEAT_MODE_ONE -> Icons.Rounded.RepeatOne
-                                else -> Icons.Rounded.Repeat
-                            },
-                            contentDescription = "Repeat",
-                            tint = if (repeatMode != Player.REPEAT_MODE_OFF) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    IconButton(onClick = { /* Not implemented */ }) {
-                        Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics")
-                    }
-
-                    IconButton(onClick = { /* Not implemented */ }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Add to playlist")
-                    }
-
-                    IconButton(onClick = { /* Not implemented */ }) {
-                        Icon(Icons.Rounded.MoreHoriz, contentDescription = "More")
+                        IconButton(onClick = { }) { Icon(Icons.Rounded.Lyrics, null) }
+                        IconButton(onClick = { }) { Icon(Icons.Rounded.Add, null) }
+                        IconButton(onClick = { }) { Icon(Icons.Rounded.MoreHoriz, null) }
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.height(80.dp))
+            }
+
+            // PHYSICALLY BASED QUEUE SHEET
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .offset { IntOffset(0, queueOffsetY.value.roundToInt()) }
+                    .draggable(
+                        orientation = Orientation.Vertical,
+                        state = rememberDraggableState { delta ->
+                            scope.launch {
+                                queueOffsetY.snapTo((queueOffsetY.value + delta).coerceIn(topPaddingPx, closedValue))
+                            }
+                        },
+                        onDragStopped = { velocity ->
+                            val midpoint = (closedValue + topPaddingPx) / 2
+                            val targetValue = when {
+                                velocity < -500f -> topPaddingPx
+                                velocity > 500f -> closedValue
+                                queueOffsetY.value < midpoint -> topPaddingPx
+                                else -> closedValue
+                            }
+                            scope.launch {
+                                queueOffsetY.animateTo(
+                                    targetValue = targetValue,
+                                    initialVelocity = velocity,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessLow
+                                    )
+                                )
+                            }
+                        }
+                    ),
+                color = artworkColors.secondary.copy(alpha = 0.15f).compositeOver(MaterialTheme.colorScheme.surfaceContainerHigh),
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                tonalElevation = 12.dp,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(peekingHeightPx.let { with(density) { it.toDp() } })
+                            .clickable(remember { MutableInteractionSource() }, null) {
+                                scope.launch {
+                                    val target = if (isQueueVisible) closedValue else topPaddingPx
+                                    queueOffsetY.animateTo(target, spring(stiffness = Spring.StiffnessLow))
+                                }
+                            },
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 12.dp)
+                                    .width(48.dp)
+                                    .height(4.dp)
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), CircleShape)
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Queue", 
+                                style = MaterialTheme.typography.labelLarge, 
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        QueueContent(player)
+                    }
+                }
             }
         }
     }

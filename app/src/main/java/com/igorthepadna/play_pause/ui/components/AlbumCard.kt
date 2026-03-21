@@ -1,5 +1,6 @@
 package com.igorthepadna.play_pause.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -8,6 +9,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -36,13 +38,31 @@ fun AlbumCard(
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 2.dp
         ) {
-            AsyncImage(
-                model = album.artworkUri,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                error = painterResource(R.drawable.ic_launcher_foreground)
-            )
+            val showGrid = !album.hasFolderCover && album.allCovers.size > 1
+            
+            if (showGrid) {
+                val displayCovers = album.allCovers.take(4)
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(modifier = Modifier.weight(1f)) {
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            AlbumCoverImage(displayCovers.getOrNull(0))
+                        }
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            AlbumCoverImage(displayCovers.getOrNull(1))
+                        }
+                    }
+                    Row(modifier = Modifier.weight(1f)) {
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            AlbumCoverImage(displayCovers.getOrNull(2))
+                        }
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            AlbumCoverImage(displayCovers.getOrNull(3))
+                        }
+                    }
+                }
+            } else {
+                AlbumCoverImage(album.artworkUri)
+            }
         }
         Spacer(modifier = Modifier.height(12.dp))
         Text(
@@ -62,4 +82,16 @@ fun AlbumCard(
             modifier = Modifier.padding(horizontal = 4.dp)
         )
     }
+}
+
+@Composable
+private fun AlbumCoverImage(model: Any?) {
+    AsyncImage(
+        model = model,
+        contentDescription = null,
+        modifier = Modifier.fillMaxSize(),
+        contentScale = ContentScale.Crop,
+        error = painterResource(R.drawable.ic_launcher_foreground),
+        placeholder = painterResource(R.drawable.ic_launcher_foreground)
+    )
 }

@@ -8,8 +8,10 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
 
+@Immutable
 data class Song(
     val id: Long,
     val title: String,
@@ -24,21 +26,35 @@ data class Song(
     val dateAdded: Long,
     val trackNumber: Int,
     val albumId: Long,
-    var genre: String? = null,
-    var bitrate: String? = null,
-    var channels: String? = null,
-    var year: Int = 0
+    val genre: String? = null,
+    val bitrate: String? = null,
+    val channels: String? = null,
+    val year: Int = 0
 )
 
+@Immutable
 data class Album(
     val id: Long,
     val title: String,
     val artist: String,
     val artworkUri: Uri?,
     val songs: List<Song>,
-    val year: Int = 0
+    val year: Int = 0,
+    val allCovers: List<Uri> = emptyList(),
+    val hasFolderCover: Boolean = false
 )
 
+@Immutable
+data class Artist(
+    val name: String,
+    val albums: List<Album>,
+    val songs: List<Song>,
+    val albumCount: Int,
+    val trackCount: Int,
+    val thumbnailUri: Uri? = null
+)
+
+@Immutable
 data class Playlist(
     val id: String,
     val name: String,
@@ -56,7 +72,7 @@ enum class LibraryFilter(val label: String, val icon: ImageVector) {
 }
 
 enum class SortType {
-    TITLE, ARTIST, DURATION, RELEASE_DATE, DATE_ADDED
+    TITLE, ARTIST, DURATION, RELEASE_DATE, DATE_ADDED, ALBUM_COUNT, TRACK_COUNT
 }
 
 enum class SortOrder {

@@ -8,7 +8,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,6 +26,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +41,8 @@ import kotlinx.coroutines.delay
 fun NowPlayingBar(
     player: Player,
     onClick: () -> Unit,
+    onDrag: (Float) -> Unit = {},
+    onDragStopped: (Float) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
@@ -89,7 +95,16 @@ fun NowPlayingBar(
     Surface(
         modifier = modifier
             .padding(horizontal = 12.dp, vertical = 4.dp)
-            .height(76.dp),
+            .height(76.dp)
+            .draggable(
+                orientation = Orientation.Vertical,
+                state = rememberDraggableState { delta ->
+                    onDrag(delta)
+                },
+                onDragStopped = { velocity ->
+                    onDragStopped(velocity)
+                }
+            ),
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         tonalElevation = 8.dp,
         shadowElevation = 12.dp,
@@ -159,7 +174,7 @@ fun NowPlayingBar(
                     }
                 }
             }
-            
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
