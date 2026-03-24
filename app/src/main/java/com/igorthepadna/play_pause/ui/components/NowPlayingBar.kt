@@ -70,7 +70,7 @@ fun NowPlayingBar(
         while (isPlaying && !isDragging) {
             currentPosition = player.currentPosition
             duration = player.duration
-            delay(500)
+            delay(250) // Drastically sped up to 4 times per second (250ms)
         }
     }
 
@@ -101,10 +101,36 @@ fun NowPlayingBar(
                 state = rememberDraggableState { delta ->
                     onDrag(delta)
                 },
-                onDragStopped = { velocity ->
+                onDragStopped = { velocity: Float ->
                     onDragStopped(velocity)
                 }
-            ),
+            )
+            .pointerInput(player) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { offset ->
+                        isDragging = true
+                        val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
+                        if (duration > 0) {
+                            currentPosition = (newProgress * duration).toLong()
+                        }
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val newProgress = (change.position.x / size.width).coerceIn(0f, 1f)
+                        if (duration > 0) {
+                            currentPosition = (newProgress * duration).toLong()
+                        }
+                    },
+                    onDragEnd = {
+                        isDragging = false
+                        player.seekTo(currentPosition)
+                    },
+                    onDragCancel = {
+                        isDragging = false
+                    }
+                )
+            }
+            .clickable { onClick() },
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         tonalElevation = 8.dp,
         shadowElevation = 12.dp,
@@ -174,37 +200,6 @@ fun NowPlayingBar(
                     }
                 }
             }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(player) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { offset ->
-                                isDragging = true
-                                val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                                if (duration > 0) {
-                                    currentPosition = (newProgress * duration).toLong()
-                                }
-                            },
-                            onDrag = { change, _ ->
-                                change.consume()
-                                val newProgress = (change.position.x / size.width).coerceIn(0f, 1f)
-                                if (duration > 0) {
-                                    currentPosition = (newProgress * duration).toLong()
-                                }
-                            },
-                            onDragEnd = {
-                                isDragging = false
-                                player.seekTo(currentPosition)
-                            },
-                            onDragCancel = {
-                                isDragging = false
-                            }
-                        )
-                    }
-                    .clickable { if (!isDragging) onClick() }
-            )
         }
     }
 }

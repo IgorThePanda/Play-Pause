@@ -1,5 +1,6 @@
 package com.igorthepadna.play_pause
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -15,17 +16,58 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.igorthepadna.play_pause.utils.verticalScrollbar
+
+enum class SettingsTab {
+    MAIN, LYRICS
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainSettingsScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit
+) {
+    var currentTab by remember { mutableStateOf(SettingsTab.MAIN) }
+
+    AnimatedContent(
+        targetState = currentTab,
+        transitionSpec = {
+            if (targetState == SettingsTab.LYRICS) {
+                slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
+            } else {
+                slideInHorizontally { -it } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
+            }
+        },
+        label = "settings_nav"
+    ) { tab ->
+        when (tab) {
+            SettingsTab.MAIN -> MainSettingsContent(
+                viewModel = viewModel,
+                onBack = onBack,
+                onNavigateToLyrics = { currentTab = SettingsTab.LYRICS }
+            )
+            SettingsTab.LYRICS -> LyricSettingsScreen(
+                viewModel = viewModel,
+                onBack = { currentTab = SettingsTab.MAIN }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainSettingsContent(
+    viewModel: MainViewModel,
+    onBack: () -> Unit,
+    onNavigateToLyrics: () -> Unit
 ) {
     val scrollState = rememberScrollState()
     val paddingValues = PaddingValues(16.dp)
@@ -60,6 +102,15 @@ fun MainSettingsScreen(
                     icon = Icons.Rounded.MusicNote,
                     checked = gaplessPlayback,
                     onCheckedChange = { viewModel.setGaplessPlayback(it) }
+                )
+            }
+
+            SettingsSection(title = "Customization") {
+                SettingsActionItem(
+                    title = "Lyrics Editor",
+                    subtitle = "Customize how lyrics appear",
+                    icon = Icons.Rounded.Lyrics,
+                    onClick = onNavigateToLyrics
                 )
             }
 
@@ -151,8 +202,147 @@ fun MainSettingsScreen(
                 )
             }
             
-            // Add some spacer at the bottom to allow scrolling past the floating bar
             Spacer(Modifier.height(100.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LyricSettingsScreen(
+    viewModel: MainViewModel,
+    onBack: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+    val fontSize by viewModel.lyricFontSize.collectAsStateWithLifecycle()
+    val inactiveAlpha by viewModel.lyricInactiveAlpha.collectAsStateWithLifecycle()
+    val activeScale by viewModel.lyricActiveScale.collectAsStateWithLifecycle()
+    val lineSpacing by viewModel.lyricLineSpacing.collectAsStateWithLifecycle()
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Lyrics Editor", fontWeight = FontWeight.Black) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(scrollState)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            // Preview Section
+            Text(
+                "Preview",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+            
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = Color.Black,
+                tonalElevation = 4.dp
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    // Inactive Sample
+                    Text(
+                        "This is an inactive line",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontSize = fontSize.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = (fontSize * 1.4).sp
+                        ),
+                        color = Color.White.copy(alpha = inactiveAlpha),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(bottom = (lineSpacing / 2).dp)
+                    )
+                    
+                    // Active Sample
+                    Text(
+                        "This is the active line",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontSize = fontSize.sp,
+                            fontWeight = FontWeight.Black,
+                            lineHeight = (fontSize * 1.4).sp
+                        ),
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .graphicsLayer {
+                                scaleX = activeScale
+                                scaleY = activeScale
+                            }
+                            .padding(vertical = (lineSpacing / 2).dp)
+                    )
+
+                    // Inactive Sample
+                    Text(
+                        "Waiting for the beat...",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontSize = fontSize.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = (fontSize * 1.4).sp
+                        ),
+                        color = Color.White.copy(alpha = inactiveAlpha),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = (lineSpacing / 2).dp)
+                    )
+                }
+            }
+
+            SettingsSection(title = "Typography") {
+                SettingsSliderItem(
+                    title = "Font Size",
+                    value = fontSize,
+                    valueRange = 16f..48f,
+                    icon = Icons.Rounded.TextFields,
+                    onValueChange = { viewModel.setLyricFontSize(it) }
+                )
+                
+                SettingsSliderItem(
+                    title = "Line Spacing",
+                    value = lineSpacing,
+                    valueRange = 4f..48f,
+                    icon = Icons.Rounded.FormatLineSpacing,
+                    onValueChange = { viewModel.setLyricLineSpacing(it) }
+                )
+            }
+
+            SettingsSection(title = "Animations") {
+                SettingsSliderItem(
+                    title = "Inactive Opacity",
+                    value = inactiveAlpha,
+                    valueRange = 0.05f..0.8f,
+                    icon = Icons.Rounded.Opacity,
+                    onValueChange = { viewModel.setLyricInactiveAlpha(it) }
+                )
+
+                SettingsSliderItem(
+                    title = "Active Scale",
+                    value = activeScale,
+                    valueRange = 1f..1.5f,
+                    icon = Icons.Rounded.ZoomIn,
+                    onValueChange = { viewModel.setLyricActiveScale(it) }
+                )
+            }
+            
+            Spacer(Modifier.height(40.dp))
         }
     }
 }
@@ -213,6 +403,47 @@ fun SettingsSwitchItem(
             }
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
+    }
+}
+
+@Composable
+fun SettingsSliderItem(
+    title: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    icon: ImageVector,
+    onValueChange: (Float) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(16.dp))
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = if (valueRange.endInclusive <= 2f) "%.2f".format(value) else value.toInt().toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            modifier = Modifier.padding(top = 4.dp)
+        )
     }
 }
 

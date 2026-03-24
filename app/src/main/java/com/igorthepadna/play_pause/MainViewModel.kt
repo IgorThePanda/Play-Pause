@@ -56,6 +56,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentLyrics = MutableStateFlow<String?>(null)
     val currentLyrics = _currentLyrics.asStateFlow()
 
+    private val _isLyricsLoading = MutableStateFlow(false)
+    val isLyricsLoading = _isLyricsLoading.asStateFlow()
+
     private val _playlists = MutableStateFlow<List<Playlist>>(listOf(
         Playlist(id = "favorites", name = "Favorites", isFavorite = true)
     ))
@@ -88,6 +91,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _gaplessPlayback = MutableStateFlow(prefs.getBoolean("gapless_playback", true))
     val gaplessPlayback = _gaplessPlayback.asStateFlow()
 
+    // Lyric Settings
+    private val _lyricFontSize = MutableStateFlow(prefs.getFloat("lyric_font_size", 28f))
+    val lyricFontSize = _lyricFontSize.asStateFlow()
+
+    private val _lyricInactiveAlpha = MutableStateFlow(prefs.getFloat("lyric_inactive_alpha", 0.35f))
+    val lyricInactiveAlpha = _lyricInactiveAlpha.asStateFlow()
+
+    private val _lyricActiveScale = MutableStateFlow(prefs.getFloat("lyric_active_scale", 1.05f))
+    val lyricActiveScale = _lyricActiveScale.asStateFlow()
+
+    private val _lyricLineSpacing = MutableStateFlow(prefs.getFloat("lyric_line_spacing", 12f))
+    val lyricLineSpacing = _lyricLineSpacing.asStateFlow()
+
     // Persistent Navigation State
     private val _currentFilter = MutableStateFlow(
         runCatching { LibraryFilter.valueOf(prefs.getString("last_filter", LibraryFilter.ALBUMS.name)!!) }.getOrDefault(LibraryFilter.ALBUMS)
@@ -114,7 +130,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val tabSortSettings = _tabSortSettings.asStateFlow()
 
-    // Highly Optimized Flows - No heavy lifting in flows anymore
+    // Highly Optimized Flows
     val filteredSongs = combine(_songs, debouncedSearchQuery, _tabSortSettings) { allSongs, query, settings ->
         val currentSettings = settings[LibraryFilter.SONGS] ?: TabSortSettings()
         var list = if (query.isBlank()) allSongs 
@@ -196,6 +212,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("gapless_playback", enabled).apply()
     }
 
+    fun setLyricFontSize(size: Float) {
+        _lyricFontSize.value = size
+        prefs.edit().putFloat("lyric_font_size", size).apply()
+    }
+
+    fun setLyricInactiveAlpha(alpha: Float) {
+        _lyricInactiveAlpha.value = alpha
+        prefs.edit().putFloat("lyric_inactive_alpha", alpha).apply()
+    }
+
+    fun setLyricActiveScale(scale: Float) {
+        _lyricActiveScale.value = scale
+        prefs.edit().putFloat("lyric_active_scale", scale).apply()
+    }
+
+    fun setLyricLineSpacing(spacing: Float) {
+        _lyricLineSpacing.value = spacing
+        prefs.edit().putFloat("lyric_line_spacing", spacing).apply()
+    }
+
     fun setCurrentFilter(filter: LibraryFilter) {
         _currentFilter.value = filter
         prefs.edit().putString("last_filter", filter.name).apply()
@@ -241,11 +277,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val currentItem = player.currentMediaItem ?: return
         val mediaId = currentItem.mediaId.toLongOrNull() ?: return
 
-        // Find the song by ID to get the file path
         val song = _songs.value.find { it.id == mediaId } ?: return
         
         viewModelScope.launch {
+            _isLyricsLoading.value = true
+            _currentLyrics.value = null // Clear old lyrics while loading
             _currentLyrics.value = repository.getLyrics(song.path)
+            _isLyricsLoading.value = false
         }
     }
 
@@ -313,7 +351,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             _currentPlayingId.value = mediaItem?.mediaId?.toLongOrNull() ?: -1L
-            _currentLyrics.value = null // Reset lyrics for new song
+            // Set loading immediately to prevent "unavailable" flash
+            _isLyricsLoading.value = true
+            _currentLyrics.value = null 
+            loadLyricsForCurrentSong()
         }
     }
 
@@ -322,7 +363,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _player.value = p
         p?.addListener(playerListener)
         _currentPlayingId.value = p?.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L
-        _currentLyrics.value = null
+        loadLyricsForCurrentSong()
     }
 
     override fun onCleared() {

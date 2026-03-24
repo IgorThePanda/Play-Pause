@@ -5,12 +5,13 @@ import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.igorthepadna.play_pause.utils.CustomShuffleOrder
 
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
@@ -32,61 +33,18 @@ class PlaybackService : MediaSessionService() {
 
         // Handle reshuffle logic while preserving "Play Next" items and current item positions
         player.addListener(object : Player.Listener {
-            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-                if (shuffleModeEnabled) {
-                    val count = player.mediaItemCount
-                    val currentIndex = player.currentMediaItemIndex
-                    if (count > 0 && currentIndex != C.INDEX_UNSET) {
-                        val playNextIndices = mutableListOf<Int>()
-                        val normalIndices = mutableListOf<Int>()
-                        
-                        for (i in 0 until count) {
-                            if (i == currentIndex) continue
-                            val item = player.getMediaItemAt(i)
-                            val isPlayNext = item.mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false
-                            if (isPlayNext) {
-                                playNextIndices.add(i)
-                            } else {
-                                normalIndices.add(i)
-                            }
-                        }
-                        
-                        // Shuffle only the normal items
-                        val shuffledNormal = normalIndices.shuffled()
-                        
-                        // Reconstruct the order:
-                        // 1. Shuffled normal items that were BEFORE the current index
-                        // 2. The current item
-                        // 3. Play Next items (in their original order)
-                        // 4. Remaining shuffled normal items
-                        
-                        val newOrder = mutableListOf<Int>()
-                        val itemsBefore = currentIndex // original count of items before current
-                        
-                        // Fill up to currentIndex with shuffled items
-                        for (i in 0 until itemsBefore) {
-                            if (i < shuffledNormal.size) {
-                                newOrder.add(shuffledNormal[i])
-                            }
-                        }
-                        
-                        // Add current item
-                        newOrder.add(currentIndex)
-                        
-                        // Add all Play Next items right after current
-                        newOrder.addAll(playNextIndices)
-                        
-                        // Add remaining shuffled items
-                        val usedNormalCount = newOrder.size - 1 - playNextIndices.size
-                        if (usedNormalCount < shuffledNormal.size) {
-                            newOrder.addAll(shuffledNormal.subList(usedNormalCount, shuffledNormal.size))
-                        }
-                        
-                        if (newOrder.size == count) {
-                            player.setShuffleOrder(DefaultShuffleOrder(newOrder.toIntArray(), System.currentTimeMillis()))
-                        }
-                    }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                updateShuffleOrder(player)
+            }
+
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) {
+                    updateShuffleOrder(player)
                 }
+            }
+
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                updateShuffleOrder(player)
             }
         })
         
@@ -103,6 +61,29 @@ class PlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(pendingIntent)
             .build()
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun updateShuffleOrder(player: ExoPlayer) {
+        val count = player.mediaItemCount
+        if (count > 0) {
+            val playNextIndices = mutableListOf<Int>()
+            val normalIndices = mutableListOf<Int>()
+            val currentIndex = player.currentMediaItemIndex
+            
+            for (i in 0 until count) {
+                if (i == currentIndex) continue
+                val item = player.getMediaItemAt(i)
+                val isPlayNext = item.mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false
+                if (isPlayNext) {
+                    playNextIndices.add(i)
+                } else {
+                    normalIndices.add(i)
+                }
+            }
+            
+            player.setShuffleOrder(CustomShuffleOrder(count, currentIndex, playNextIndices, normalIndices))
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession

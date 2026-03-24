@@ -207,10 +207,11 @@ fun LyricLineView(
             }
     ) {
         if (!line.speaker.isNullOrBlank()) {
+            val speakerColor = artworkColors.secondary.copy(alpha = 0.8f)
             Text(
                 text = line.speaker.uppercase(),
                 style = MaterialTheme.typography.labelSmall,
-                color = artworkColors.secondary.copy(alpha = 0.8f),
+                color = speakerColor,
                 fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
@@ -819,7 +820,7 @@ fun FullScreenPlayer(
                         }
                     }
                     Box(modifier = Modifier.weight(1f)) {
-                        QueueContent(player)
+                        QueueContent(player, artworkColors)
                     }
                 }
             }
