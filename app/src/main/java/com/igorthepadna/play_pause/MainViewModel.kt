@@ -315,10 +315,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playSongs(songs: List<Song>, startIndex: Int = 0) {
         val player = _player.value ?: return
-        val mediaItems = songs.map { it.toMediaItem() }
-        player.setMediaItems(mediaItems, startIndex, 0L)
-        player.prepare()
-        player.play()
+        if (songs.isEmpty()) return
+
+        val safeStartIndex = startIndex.coerceIn(0, songs.lastIndex)
+
+        // For large libraries, setting thousands of MediaItems at once can cause a
+        // TransactionTooLargeException because it's an IPC call to the PlaybackService.
+        // We solve this by setting the first item immediately and adding the rest in chunks.
+        if (songs.size > 100) {
+            // Set initial item to start playback as fast as possible
+            player.setMediaItem(songs[safeStartIndex].toMediaItem())
+            player.prepare()
+            player.play()
+
+            val chunkSize = 100
+            // Add items before the current one in chunks
+            val beforeItems = songs.subList(0, safeStartIndex)
+            for (i in 0 until beforeItems.size step chunkSize) {
+                val end = (i + chunkSize).coerceAtMost(beforeItems.size)
+                val chunk = beforeItems.subList(i, end).map { it.toMediaItem() }
+                player.addMediaItems(i, chunk)
+            }
+
+            // Add items after the current one in chunks
+            val afterItems = songs.subList(safeStartIndex + 1, songs.size)
+            for (i in 0 until afterItems.size step chunkSize) {
+                val end = (i + chunkSize).coerceAtMost(afterItems.size)
+                val chunk = afterItems.subList(i, end).map { it.toMediaItem() }
+                player.addMediaItems(player.mediaItemCount, chunk)
+            }
+        } else {
+            val mediaItems = songs.map { it.toMediaItem() }
+            player.setMediaItems(mediaItems, safeStartIndex, 0L)
+            player.prepare()
+            player.play()
+        }
     }
 
     fun addToPlaylist(playlistId: String, songId: Long) {
