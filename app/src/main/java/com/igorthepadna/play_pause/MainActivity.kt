@@ -35,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +60,7 @@ import com.igorthepadna.play_pause.ui.components.PlaylistSelectionSheet
 import com.igorthepadna.play_pause.ui.components.SongDetailsContent
 import com.igorthepadna.play_pause.ui.screens.LibraryScreen
 import com.igorthepadna.play_pause.ui.theme.PlayPauseTheme
+import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -139,6 +141,19 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
     val playlistSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showDetailsSheet by remember { mutableStateOf(false) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
+
+    // Colors for the current song (used in sheets)
+    val detailsArtworkColors = rememberArtworkColors(
+        artworkUri = selectedSongForDetails?.albumArtUri,
+        defaultPrimary = MaterialTheme.colorScheme.surface,
+        defaultSecondary = MaterialTheme.colorScheme.primary
+    )
+
+    val playlistArtworkColors = rememberArtworkColors(
+        artworkUri = selectedSongForPlaylist?.albumArtUri,
+        defaultPrimary = MaterialTheme.colorScheme.surface,
+        defaultSecondary = MaterialTheme.colorScheme.primary
+    )
 
     // Fix: BackHandler for settings
     BackHandler(enabled = isSettingsVisible || showDetailsSheet || showPlaylistSheet) {
@@ -468,9 +483,12 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
             onDismissRequest = { showDetailsSheet = false },
             sheetState = detailsSheetState,
             dragHandle = { BottomSheetDefaults.DragHandle() },
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = detailsArtworkColors.secondary.copy(alpha = 0.04f).compositeOver(MaterialTheme.colorScheme.surface)
         ) {
-            SongDetailsContent(song = selectedSongForDetails!!)
+            SongDetailsContent(
+                song = selectedSongForDetails!!,
+                artworkColors = detailsArtworkColors
+            )
         }
     }
 
@@ -479,11 +497,12 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
             onDismissRequest = { showPlaylistSheet = false },
             sheetState = playlistSheetState,
             dragHandle = { BottomSheetDefaults.DragHandle() },
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = playlistArtworkColors.secondary.copy(alpha = 0.04f).compositeOver(MaterialTheme.colorScheme.surface)
         ) {
             PlaylistSelectionSheet(
                 song = selectedSongForPlaylist!!,
                 playlists = playlists,
+                artworkColors = playlistArtworkColors,
                 onDismiss = { showPlaylistSheet = false },
                 onPlaylistSelected = { id ->
                     viewModel.addToPlaylist(id, selectedSongForPlaylist!!.id)

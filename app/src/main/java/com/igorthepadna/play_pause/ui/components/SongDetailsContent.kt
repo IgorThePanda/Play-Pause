@@ -2,7 +2,6 @@ package com.igorthepadna.play_pause.ui.components
 
 import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -11,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -23,22 +21,19 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.Song
+import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.formatDuration
-import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @Composable
-fun SongDetailsContent(song: Song) {
+fun SongDetailsContent(
+    song: Song,
+    artworkColors: ArtworkColors
+) {
     var genre by remember { mutableStateOf("Loading...") }
     var bitrate by remember { mutableStateOf("Loading...") }
-
-    val artworkColors = rememberArtworkColors(
-        artworkUri = song.albumArtUri,
-        defaultPrimary = MaterialTheme.colorScheme.surface,
-        defaultSecondary = MaterialTheme.colorScheme.primary
-    )
 
     LaunchedEffect(song.path) {
         withContext(Dispatchers.IO) {
@@ -60,12 +55,6 @@ fun SongDetailsContent(song: Song) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    0f to artworkColors.primary.copy(alpha = 0.2f),
-                    0.4f to MaterialTheme.colorScheme.surface
-                )
-            )
             .padding(horizontal = 24.dp, vertical = 24.dp)
             .padding(bottom = 48.dp)
     ) {
@@ -120,7 +109,7 @@ fun SongDetailsContent(song: Song) {
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // Using standard Flow-like behavior with Column + Rows to avoid FlowRow binary mismatch crashes
+        // Custom wrap layout using standard Compose features
         val details = listOf(
             Icons.Rounded.Album to song.album,
             Icons.Rounded.MusicNote to genre,
@@ -131,7 +120,6 @@ fun SongDetailsContent(song: Song) {
             Icons.Rounded.SdStorage to String.format(Locale.getDefault(), "%.2f MB", song.size / (1024f * 1024f))
         )
 
-        // Custom wrap layout using standard Compose features
         androidx.compose.ui.layout.Layout(
             content = {
                 details.forEach { (icon, text) ->
@@ -175,8 +163,8 @@ fun SongDetailsContent(song: Song) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
-            color = artworkColors.secondary.copy(alpha = 0.05f),
-            border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.1f))
+            color = artworkColors.secondary.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.15f))
         ) {
             Row(
                 modifier = Modifier.padding(16.dp),
@@ -205,7 +193,7 @@ fun DetailPill(icon: ImageVector, text: String, color: Color) {
         icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color) },
         shape = RoundedCornerShape(16.dp),
         colors = SuggestionChipDefaults.suggestionChipColors(
-            containerColor = color.copy(alpha = 0.1f),
+            containerColor = color.copy(alpha = 0.12f),
             labelColor = MaterialTheme.colorScheme.onSurface
         ),
         border = null

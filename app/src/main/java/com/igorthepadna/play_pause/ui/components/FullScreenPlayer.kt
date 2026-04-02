@@ -191,16 +191,20 @@ fun LyricLineView(
     currentPosition: Long,
     isActive: Boolean,
     artworkColors: ArtworkColors,
+    fontSize: Float,
+    inactiveAlpha: Float,
+    activeScale: Float,
+    lineSpacing: Float,
     onSeek: (Long) -> Unit
 ) {
-    val lineAlpha by animateFloatAsState(if (isActive) 1f else 0.35f, label = "line_alpha")
-    val lineScale by animateFloatAsState(if (isActive) 1.05f else 0.95f, label = "line_scale")
+    val lineAlpha by animateFloatAsState(if (isActive) 1f else inactiveAlpha, label = "line_alpha")
+    val lineScale by animateFloatAsState(if (isActive) activeScale else 1.0f, label = "line_scale")
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp)
+            .padding(vertical = (lineSpacing / 2).dp)
             .graphicsLayer {
                 alpha = lineAlpha
                 scaleX = lineScale
@@ -235,8 +239,9 @@ fun LyricLineView(
                     Text(
                         text = word.text,
                         style = MaterialTheme.typography.headlineMedium.copy(
+                            fontSize = fontSize.sp,
                             fontWeight = if (isWordCurrentlyPlaying) FontWeight.Black else FontWeight.Bold,
-                            lineHeight = 40.sp,
+                            lineHeight = (fontSize * 1.4).sp,
                             letterSpacing = (-1).sp
                         ),
                         color = Color.White,
@@ -259,8 +264,9 @@ fun LyricLineView(
             Text(
                 text = line.text,
                 style = MaterialTheme.typography.headlineMedium.copy(
+                    fontSize = fontSize.sp,
                     fontWeight = FontWeight.Black,
-                    lineHeight = 40.sp,
+                    lineHeight = (fontSize * 1.4).sp,
                     letterSpacing = (-1).sp
                 ),
                 color = Color.White,
@@ -305,6 +311,12 @@ fun FullScreenPlayer(
     var isLyricsVisible by remember { mutableStateOf(false) }
     val rawLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
     val parsedLyrics = remember(rawLyrics) { parseLrc(rawLyrics) }
+    
+    // Lyric Editor States
+    val lyricFontSize by viewModel.lyricFontSize.collectAsStateWithLifecycle()
+    val lyricInactiveAlpha by viewModel.lyricInactiveAlpha.collectAsStateWithLifecycle()
+    val lyricActiveScale by viewModel.lyricActiveScale.collectAsStateWithLifecycle()
+    val lyricLineSpacing by viewModel.lyricLineSpacing.collectAsStateWithLifecycle()
 
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var currentPosition by remember { mutableLongStateOf(player.currentPosition) }
@@ -460,97 +472,104 @@ fun FullScreenPlayer(
                 Box(
                     modifier = Modifier
                         .aspectRatio(1f)
-                        .fillMaxWidth(0.8f) // Smaller artwork to prevent touching
-                        .graphicsLayer {
-                            scaleX = artScale
-                            scaleY = artScale
-                        },
+                        .fillMaxWidth(0.8f),
                     contentAlignment = Alignment.Center
                 ) {
-                    // Artwork with blur when lyrics shown
+                    // Combined Container for Artwork, Blur, and Lyrics
                     Surface(
                         modifier = Modifier
                             .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = artScale
+                                scaleY = artScale
+                            }
                             .clip(RoundedCornerShape(artCorner)),
                         tonalElevation = 12.dp,
                         shadowElevation = 24.dp
                     ) {
-                        AsyncImage(
-                            model = currentMediaItem?.mediaMetadata?.artworkUri,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .blur(if (isLyricsVisible) 30.dp else 0.dp),
-                            contentScale = ContentScale.Crop,
-                            error = painterResource(R.drawable.ic_launcher_foreground)
-                        )
-                    }
-
-                    // EXPRESSIVE LYRICS OVERLAY (ENHANCED)
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = isLyricsVisible,
-                        enter = fadeIn(animationSpec = tween(600)) + scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessLow)),
-                        exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 1.2f, animationSpec = tween(400))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.3f))
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (parsedLyrics.isNotEmpty()) {
-                                LazyColumn(
-                                    state = lyricsListState,
-                                    modifier = Modifier.fillMaxSize(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-                                    contentPadding = PaddingValues(vertical = 140.dp)
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            AsyncImage(
+                                model = currentMediaItem?.mediaMetadata?.artworkUri,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .blur(if (isLyricsVisible) 30.dp else 0.dp),
+                                contentScale = ContentScale.Crop,
+                                error = painterResource(R.drawable.ic_launcher_foreground)
+                            )
+                            
+                            // EXPRESSIVE LYRICS OVERLAY (Clipped to Container)
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = isLyricsVisible,
+                                enter = fadeIn(animationSpec = tween(600)) + scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessLow)),
+                                exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 1.2f, animationSpec = tween(400))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.45f))
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    itemsIndexed(parsedLyrics) { index, lyric ->
-                                        LyricLineView(
-                                            line = lyric,
-                                            currentPosition = currentPosition,
-                                            isActive = index == currentLyricIndex,
-                                            artworkColors = artworkColors,
-                                            onSeek = { timestamp ->
-                                                player.seekTo(timestamp)
-                                                currentPosition = timestamp
+                                    if (parsedLyrics.isNotEmpty()) {
+                                        LazyColumn(
+                                            state = lyricsListState,
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(lyricLineSpacing.dp, Alignment.CenterVertically),
+                                            contentPadding = PaddingValues(vertical = 100.dp)
+                                        ) {
+                                            itemsIndexed(parsedLyrics) { index, lyric ->
+                                                LyricLineView(
+                                                    line = lyric,
+                                                    currentPosition = currentPosition,
+                                                    isActive = index == currentLyricIndex,
+                                                    artworkColors = artworkColors,
+                                                    fontSize = lyricFontSize,
+                                                    inactiveAlpha = lyricInactiveAlpha,
+                                                    activeScale = lyricActiveScale,
+                                                    lineSpacing = lyricLineSpacing,
+                                                    onSeek = { timestamp ->
+                                                        player.seekTo(timestamp)
+                                                        currentPosition = timestamp
+                                                    }
+                                                )
                                             }
-                                        )
-                                    }
-                                }
-                            } else if (!rawLyrics.isNullOrBlank()) {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    item {
-                                        Text(
-                                            text = rawLyrics!!,
-                                            style = MaterialTheme.typography.titleLarge.copy(
+                                        }
+                                    } else if (!rawLyrics.isNullOrBlank()) {
+                                        LazyColumn(
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            item {
+                                                Text(
+                                                    text = rawLyrics!!,
+                                                    style = MaterialTheme.typography.titleLarge.copy(
+                                                        fontSize = (lyricFontSize * 0.8f).sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        lineHeight = (lyricFontSize * 1.1).sp
+                                                    ),
+                                                    color = Color.White,
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier
+                                                        .padding(16.dp)
+                                                        .clickable { isLyricsVisible = false }
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(Icons.Rounded.MusicNote, null, modifier = Modifier.size(48.dp), tint = Color.White.copy(alpha = 0.6f))
+                                            Spacer(Modifier.height(16.dp))
+                                            Text(
+                                                "Lyrics unavailable",
+                                                style = MaterialTheme.typography.titleLarge,
                                                 fontWeight = FontWeight.Bold,
-                                                lineHeight = 32.sp
-                                            ),
-                                            color = Color.White,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier
-                                                .padding(16.dp)
-                                                .clickable { isLyricsVisible = false }
-                                        )
+                                                color = Color.White.copy(alpha = 0.8f)
+                                            )
+                                        }
                                     }
-                                }
-                            } else {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Rounded.MusicNote, null, modifier = Modifier.size(48.dp), tint = Color.White.copy(alpha = 0.6f))
-                                    Spacer(Modifier.height(16.dp))
-                                    Text(
-                                        "Lyrics unavailable",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White.copy(alpha = 0.8f)
-                                    )
                                 }
                             }
                         }

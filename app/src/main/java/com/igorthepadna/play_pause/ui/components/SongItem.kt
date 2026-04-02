@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -36,7 +35,7 @@ import coil.request.ImageRequest
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.Playlist
 import com.igorthepadna.play_pause.data.Song
-import com.igorthepadna.play_pause.utils.rememberArtworkColors
+import com.igorthepadna.play_pause.utils.ArtworkColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -198,6 +197,7 @@ fun SongItem(
 fun PlaylistSelectionSheet(
     song: Song,
     playlists: List<Playlist>,
+    artworkColors: ArtworkColors,
     onPlaylistSelected: (String) -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onFavoriteClick: () -> Unit,
@@ -206,12 +206,6 @@ fun PlaylistSelectionSheet(
     var showCreateDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
 
-    val artworkColors = rememberArtworkColors(
-        artworkUri = song.albumArtUri,
-        defaultPrimary = MaterialTheme.colorScheme.surface,
-        defaultSecondary = MaterialTheme.colorScheme.primary
-    )
-
     val isFavorite = remember(playlists, song.id) {
         playlists.find { it.id == "favorites" }?.songs?.contains(song.id) == true
     }
@@ -219,12 +213,6 @@ fun PlaylistSelectionSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    0f to artworkColors.primary.copy(alpha = 0.2f),
-                    0.4f to MaterialTheme.colorScheme.surface
-                )
-            )
             .padding(24.dp)
             .padding(bottom = 32.dp)
     ) {
