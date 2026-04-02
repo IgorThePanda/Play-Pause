@@ -38,8 +38,6 @@ import com.igorthepadna.play_pause.data.SortType
 import com.igorthepadna.play_pause.ui.components.AlbumCard
 import com.igorthepadna.play_pause.ui.components.SongItem
 import com.igorthepadna.play_pause.ui.components.AlbumDetailView
-import com.igorthepadna.play_pause.ui.components.PlaylistSelectionSheet
-import com.igorthepadna.play_pause.ui.components.SongDetailsContent
 import com.igorthepadna.play_pause.ui.components.ArtistCard
 import com.igorthepadna.play_pause.ui.components.ArtistDetailView
 import com.igorthepadna.play_pause.utils.verticalScrollbar
@@ -54,6 +52,8 @@ fun LibraryScreen(
     isRefreshing: Boolean,
     onPermissionChanged: (Boolean) -> Unit,
     onPlaySongs: (List<Song>, Int) -> Unit,
+    onSongDetails: (Song) -> Unit,
+    onAddToPlaylist: (Song) -> Unit,
     viewModel: MainViewModel? = null,
     onShowMessage: (String) -> Unit = {},
     tabSortSettings: TabSortSettings = TabSortSettings()
@@ -62,19 +62,13 @@ fun LibraryScreen(
     val filteredSongs by viewModel?.filteredSongs?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
     val sortedAlbums by viewModel?.sortedAlbums?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
     val sortedArtists by viewModel?.sortedArtists?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
-    val playlists by viewModel?.playlists?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
+    
+    // Read the current playing ID but don't perform the comparison here
     val currentPlayingId by viewModel?.currentPlayingId?.collectAsStateWithLifecycle(-1L) ?: remember { mutableLongStateOf(-1L) }
     
     val savedAlbumId by viewModel?.selectedAlbumId?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
     val savedArtistName by viewModel?.selectedArtistName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
 
-    var selectedSongForDetails by remember { mutableStateOf<Song?>(null) }
-    var selectedSongForPlaylist by remember { mutableStateOf<Song?>(null) }
-    
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var showDetailsSheet by remember { mutableStateOf(false) }
-    var showPlaylistSheet by remember { mutableStateOf(false) }
-    
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
 
@@ -106,19 +100,13 @@ fun LibraryScreen(
                 album = detailItem,
                 player = player,
                 onBack = { viewModel?.setSelectedAlbumId(null) },
-                onSongDetails = { song ->
-                    selectedSongForDetails = song
-                    showDetailsSheet = true
-                },
+                onSongDetails = onSongDetails,
                 onPlaySongs = onPlaySongs,
                 onSwipePlayNext = { song ->
                     viewModel?.addPlayNext(song)
                     onShowMessage("Added to Play Next: ${song.title}")
                 },
-                onSwipeAddToPlaylist = { song ->
-                    selectedSongForPlaylist = song
-                    showPlaylistSheet = true
-                }
+                onSwipeAddToPlaylist = onAddToPlaylist
             )
             is Artist -> ArtistDetailView(
                 artist = detailItem,
@@ -159,7 +147,11 @@ fun LibraryScreen(
                                 verticalArrangement = Arrangement.spacedBy(24.dp),
                                 modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                             ) {
-                                items(sortedAlbums, key = { it.id }) { album ->
+                                items(
+                                    items = sortedAlbums, 
+                                    key = { it.id },
+                                    contentType = { "album_card" } // Added contentType
+                                ) { album ->
                                     AlbumCard(album = album, onClick = { viewModel?.setSelectedAlbumId(album.id) })
                                 }
                             }
@@ -185,7 +177,11 @@ fun LibraryScreen(
                                 verticalArrangement = Arrangement.spacedBy(24.dp),
                                 modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                             ) {
-                                items(sortedArtists, key = { it.name }) { artist ->
+                                items(
+                                    items = sortedArtists, 
+                                    key = { it.name },
+                                    contentType = { "artist_card" } // Added contentType
+                                ) { artist ->
                                     ArtistCard(artist = artist, onClick = { viewModel?.setSelectedArtistName(artist.name) })
                                 }
                             }
@@ -205,23 +201,21 @@ fun LibraryScreen(
                                 contentPadding = contentPadding,
                                 modifier = Modifier.fillMaxSize().verticalScrollbar(listState, padding = scrollbarPadding)
                             ) {
-                                itemsIndexed(filteredSongs, key = { _, song -> song.id }) { index, song ->
+                                itemsIndexed(
+                                    items = filteredSongs, 
+                                    key = { _, song -> song.id },
+                                    contentType = { _, _ -> "song_item" } // Added contentType
+                                ) { index, song ->
                                     SongItem(
                                         song = song,
-                                        isPlaying = song.id == currentPlayingId,
+                                        isPlaying = song.id == currentPlayingId, // Changed: Pass stable boolean
                                         onClick = { onPlaySongs(filteredSongs, index) },
-                                        onDetailsClick = {
-                                            selectedSongForDetails = song
-                                            showDetailsSheet = true
-                                        },
+                                        onDetailsClick = { onSongDetails(song) },
                                         onSwipePlayNext = {
                                             viewModel?.addPlayNext(song)
                                             onShowMessage("Added to Play Next")
                                         },
-                                        onSwipeAddToPlaylist = {
-                                            selectedSongForPlaylist = song
-                                            showPlaylistSheet = true
-                                        }
+                                        onSwipeAddToPlaylist = { onAddToPlaylist(song) }
                                     )
                                 }
                             }
@@ -241,7 +235,6 @@ fun LibraryScreen(
                     }
                 }
 
-                // SUBTLE Edge Fades
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -270,7 +263,6 @@ fun LibraryScreen(
                         )
                 )
 
-                // Scanning / Refreshing Indicator (Overlay)
                 Column(modifier = Modifier.fillMaxWidth().padding(top = listTopPadding)) {
                     AnimatedVisibility(
                         visible = isRefreshing,
@@ -312,28 +304,5 @@ fun LibraryScreen(
                 }
             }
         }
-    }
-
-    if (showDetailsSheet && selectedSongForDetails != null) {
-        ModalBottomSheet(onDismissRequest = { showDetailsSheet = false }, sheetState = sheetState) {
-            SongDetailsContent(song = selectedSongForDetails!!)
-        }
-    }
-
-    if (showPlaylistSheet && selectedSongForPlaylist != null) {
-        PlaylistSelectionSheet(
-            song = selectedSongForPlaylist!!,
-            playlists = playlists,
-            onDismiss = { showPlaylistSheet = false },
-            onPlaylistSelected = { id ->
-                viewModel?.addToPlaylist(id, selectedSongForPlaylist!!.id)
-                showPlaylistSheet = false
-            },
-            onCreatePlaylist = { name ->
-                viewModel?.createPlaylist(name)
-                showPlaylistSheet = false
-            },
-            onFavoriteClick = { viewModel?.toggleFavorite(selectedSongForPlaylist!!.id) }
-        )
     }
 }

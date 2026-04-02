@@ -52,8 +52,11 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.igorthepadna.play_pause.data.LibraryFilter
 import com.igorthepadna.play_pause.data.SortOrder
 import com.igorthepadna.play_pause.data.SortType
+import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.ui.components.FullScreenPlayer
 import com.igorthepadna.play_pause.ui.components.NowPlayingBar
+import com.igorthepadna.play_pause.ui.components.PlaylistSelectionSheet
+import com.igorthepadna.play_pause.ui.components.SongDetailsContent
 import com.igorthepadna.play_pause.ui.screens.LibraryScreen
 import com.igorthepadna.play_pause.ui.theme.PlayPauseTheme
 import kotlinx.coroutines.launch
@@ -125,12 +128,23 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
     val currentFilter by viewModel.currentFilter.collectAsStateWithLifecycle()
     val useArtworkAccent by viewModel.useArtworkAccent.collectAsStateWithLifecycle()
     val isPlayerFullScreenState by viewModel.isPlayerFullScreen.collectAsStateWithLifecycle()
-    
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle(emptyList())
+
     var isSettingsVisible by rememberSaveable { mutableStateOf(false) }
     
+    // Bottom Sheet States
+    var selectedSongForDetails by remember { mutableStateOf<Song?>(null) }
+    var selectedSongForPlaylist by remember { mutableStateOf<Song?>(null) }
+    val detailsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val playlistSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showDetailsSheet by remember { mutableStateOf(false) }
+    var showPlaylistSheet by remember { mutableStateOf(false) }
+
     // Fix: BackHandler for settings
-    BackHandler(enabled = isSettingsVisible) {
-        isSettingsVisible = false
+    BackHandler(enabled = isSettingsVisible || showDetailsSheet || showPlaylistSheet) {
+        if (isSettingsVisible) isSettingsVisible = false
+        else if (showDetailsSheet) showDetailsSheet = false
+        else if (showPlaylistSheet) showPlaylistSheet = false
     }
 
     // Sort logic
@@ -235,6 +249,14 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                         isRefreshing = isRefreshing,
                         onPermissionChanged = { hasPermission = it },
                         onPlaySongs = { songList, index -> viewModel.playSongs(songList, index) },
+                        onSongDetails = { song ->
+                            selectedSongForDetails = song
+                            showDetailsSheet = true
+                        },
+                        onAddToPlaylist = { song ->
+                            selectedSongForPlaylist = song
+                            showPlaylistSheet = true
+                        },
                         viewModel = viewModel,
                         tabSortSettings = currentTabSettings,
                         onShowMessage = { message ->
@@ -375,8 +397,6 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                             .padding(16.dp),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        // Removed Sort Button: Sort menu is now triggered via double-tap on nav bar items
-                        
                         FilledIconButton(
                             onClick = { isSettingsVisible = true },
                             colors = IconButtonDefaults.filledIconButtonColors(
@@ -414,6 +434,14 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                     scope.launch {
                         playerOffsetY.animateTo(target, spring(stiffness = Spring.StiffnessLow))
                     }
+                },
+                onMoreClick = { song ->
+                    selectedSongForDetails = song
+                    showDetailsSheet = true
+                },
+                onAddClick = { song ->
+                    selectedSongForPlaylist = song
+                    showPlaylistSheet = true
                 }
             )
         }
@@ -431,6 +459,41 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                 onUpdate = { newSettings ->
                     viewModel.updateSortSettings(currentFilter, newSettings)
                 }
+            )
+        }
+    }
+
+    if (showDetailsSheet && selectedSongForDetails != null) {
+        ModalBottomSheet(
+            onDismissRequest = { showDetailsSheet = false },
+            sheetState = detailsSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() },
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            SongDetailsContent(song = selectedSongForDetails!!)
+        }
+    }
+
+    if (showPlaylistSheet && selectedSongForPlaylist != null) {
+        ModalBottomSheet(
+            onDismissRequest = { showPlaylistSheet = false },
+            sheetState = playlistSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() },
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            PlaylistSelectionSheet(
+                song = selectedSongForPlaylist!!,
+                playlists = playlists,
+                onDismiss = { showPlaylistSheet = false },
+                onPlaylistSelected = { id ->
+                    viewModel.addToPlaylist(id, selectedSongForPlaylist!!.id)
+                    showPlaylistSheet = false
+                },
+                onCreatePlaylist = { name ->
+                    viewModel.createPlaylist(name)
+                    showPlaylistSheet = false
+                },
+                onFavoriteClick = { viewModel.toggleFavorite(selectedSongForPlaylist!!.id) }
             )
         }
     }

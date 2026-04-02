@@ -18,6 +18,7 @@ import com.igorthepadna.play_pause.data.SortType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 enum class ThemeMode {
@@ -91,6 +92,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _gaplessPlayback = MutableStateFlow(prefs.getBoolean("gapless_playback", true))
     val gaplessPlayback = _gaplessPlayback.asStateFlow()
 
+    private val _scanOnlyMusicFolder = MutableStateFlow(prefs.getBoolean("scan_only_music", false))
+    val scanOnlyMusicFolder = _scanOnlyMusicFolder.asStateFlow()
+
     // Lyric Settings
     private val _lyricFontSize = MutableStateFlow(prefs.getFloat("lyric_font_size", 28f))
     val lyricFontSize = _lyricFontSize.asStateFlow()
@@ -116,13 +120,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Per-tab Sort Settings
     private val _tabSortSettings = MutableStateFlow<Map<LibraryFilter, TabSortSettings>>(
         LibraryFilter.entries.associateWith { filter ->
-            val type = runCatching { SortType.valueOf(prefs.getString("sort_type_${filter.name}", 
+            val type = runCatching { SortType.valueOf(prefs.getString("sort_type_${filter.name}",
                 when(filter) {
                     LibraryFilter.SONGS, LibraryFilter.ALBUMS, LibraryFilter.ARTISTS -> SortType.TITLE.name
                     else -> SortType.TITLE.name
                 }
             )!!) }.getOrDefault(SortType.TITLE)
-            
+
             val order = runCatching { SortOrder.valueOf(prefs.getString("sort_order_${filter.name}", SortOrder.ASC.name)!!) }.getOrDefault(SortOrder.ASC)
             val onlyAlbumArtists = prefs.getBoolean("only_album_artists_${filter.name}", false)
             TabSortSettings(type, order, onlyAlbumArtists)
@@ -180,6 +184,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedArtistName = MutableStateFlow<String?>(null)
     val selectedArtistName = _selectedArtistName.asStateFlow()
 
+    val selectedAlbum = combine(_selectedAlbumId, sortedAlbums) { id, albums ->
+        albums.find { it.id == id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val selectedArtist = combine(_selectedArtistName, sortedArtists) { name, artists ->
+        artists.find { it.name == name }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
     }
@@ -210,6 +222,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setGaplessPlayback(enabled: Boolean) {
         _gaplessPlayback.value = enabled
         prefs.edit().putBoolean("gapless_playback", enabled).apply()
+    }
+
+    fun setScanOnlyMusicFolder(only: Boolean) {
+        _scanOnlyMusicFolder.value = only
+        prefs.edit().putBoolean("scan_only_music", only).apply()
     }
 
     fun setLyricFontSize(size: Float) {
@@ -246,25 +263,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _tabSortSettings.value = _tabSortSettings.value.toMutableMap().apply {
             put(filter, settings)
         }
-        prefs.edit().apply {
-            putString("sort_type_${filter.name}", settings.sortType.name)
-            putString("sort_order_${filter.name}", settings.sortOrder.name)
-            putBoolean("only_album_artists_${filter.name}", settings.showOnlyAlbumArtists)
-        }.apply()
     }
 
     fun loadSongs(refresh: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             _isRefreshing.value = true
-            if (refresh) repository.scanMusicFolders()
-            
+            if (refresh) repository.scanMusicFolders(_scanOnlyMusicFolder.value)
+
             val newSongs = repository.getSongs()
             _songs.value = newSongs
-            
+
             // Perform all heavy processing here, while the loading indicator is up
             val albums = repository.getAlbums(newSongs)
             _allAlbums.value = albums
-            
+
             val artists = repository.getArtists(newSongs, albums)
             _allArtists.value = artists
 
@@ -278,7 +290,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val mediaId = currentItem.mediaId.toLongOrNull() ?: return
 
         val song = _songs.value.find { it.id == mediaId } ?: return
-        
+
         viewModelScope.launch {
             _isLyricsLoading.value = true
             _currentLyrics.value = null // Clear old lyrics while loading
@@ -287,69 +299,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addPlayNext(song: Song) {
-        val player = _player.value ?: return
-        val index = if (player.mediaItemCount > 0) player.currentMediaItemIndex + 1 else 0
-        player.addMediaItem(index, song.toMediaItem(isPlayNext = true))
+    fun setPlayer(p: Player?) {
+        _player.value?.removeListener(playerListener)
+        _player.value = p
+        p?.addListener(playerListener)
+        _currentPlayingId.value = p?.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L
+        loadLyricsForCurrentSong()
     }
 
-    private fun Song.toMediaItem(isPlayNext: Boolean = false): MediaItem {
-        val extras = Bundle().apply {
-            putBoolean("is_play_next", isPlayNext)
-            putString("bitrate", bitrate ?: "")
-            putString("mime_type", format ?: "")
-        }
-        return MediaItem.Builder()
-            .setMediaId(id.toString())
-            .setUri(uri)
-            .setMediaMetadata(
-                androidx.media3.common.MediaMetadata.Builder()
-                    .setTitle(title)
-                    .setArtist(artist)
-                    .setArtworkUri(albumArtUri)
-                    .setExtras(extras)
-                    .build()
-            )
-            .build()
-    }
-
-    fun playSongs(songs: List<Song>, startIndex: Int = 0) {
+    fun playSongs(songs: List<Song>, startIndex: Int) {
         val player = _player.value ?: return
         if (songs.isEmpty()) return
-
-        val safeStartIndex = startIndex.coerceIn(0, songs.lastIndex)
-
-        // For large libraries, setting thousands of MediaItems at once can cause a
-        // TransactionTooLargeException because it's an IPC call to the PlaybackService.
-        // We solve this by setting the first item immediately and adding the rest in chunks.
-        if (songs.size > 100) {
-            // Set initial item to start playback as fast as possible
-            player.setMediaItem(songs[safeStartIndex].toMediaItem())
-            player.prepare()
-            player.play()
-
-            val chunkSize = 100
-            // Add items before the current one in chunks
-            val beforeItems = songs.subList(0, safeStartIndex)
-            for (i in 0 until beforeItems.size step chunkSize) {
-                val end = (i + chunkSize).coerceAtMost(beforeItems.size)
-                val chunk = beforeItems.subList(i, end).map { it.toMediaItem() }
-                player.addMediaItems(i, chunk)
-            }
-
-            // Add items after the current one in chunks
-            val afterItems = songs.subList(safeStartIndex + 1, songs.size)
-            for (i in 0 until afterItems.size step chunkSize) {
-                val end = (i + chunkSize).coerceAtMost(afterItems.size)
-                val chunk = afterItems.subList(i, end).map { it.toMediaItem() }
-                player.addMediaItems(player.mediaItemCount, chunk)
-            }
-        } else {
+        val safeStartIndex = startIndex.coerceIn(0, songs.size - 1)
+        
+        // Final Fix: Perform MediaItem conversion on background thread, but ALL player calls MUST be on Main.
+        viewModelScope.launch(Dispatchers.Default) {
             val mediaItems = songs.map { it.toMediaItem() }
-            player.setMediaItems(mediaItems, safeStartIndex, 0L)
-            player.prepare()
-            player.play()
+            withContext(Dispatchers.Main) {
+                try {
+                    player.stop()
+                    player.clearMediaItems()
+                    player.setMediaItems(mediaItems, safeStartIndex, 0L)
+                    player.prepare()
+                    player.play()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
+    }
+
+    fun addPlayNext(song: Song) {
+        val player = _player.value ?: return
+        val index = if (player.mediaItemCount == 0) 0 else player.currentMediaItemIndex + 1
+        player.addMediaItem(index, song.toMediaItem())
     }
 
     fun addToPlaylist(playlistId: String, songId: Long) {
@@ -379,22 +362,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun Song.toMediaItem(): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId(id.toString())
+            .setUri(uri)
+            .setMediaMetadata(
+                androidx.media3.common.MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtist(artist)
+                    .setAlbumTitle(album)
+                    .setArtworkUri(albumArtUri)
+                    .build()
+            )
+            .build()
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             _currentPlayingId.value = mediaItem?.mediaId?.toLongOrNull() ?: -1L
             // Set loading immediately to prevent "unavailable" flash
             _isLyricsLoading.value = true
-            _currentLyrics.value = null 
+            _currentLyrics.value = null
             loadLyricsForCurrentSong()
         }
-    }
-
-    fun setPlayer(p: Player?) {
-        _player.value?.removeListener(playerListener)
-        _player.value = p
-        p?.addListener(playerListener)
-        _currentPlayingId.value = p?.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L
-        loadLyricsForCurrentSong()
     }
 
     override fun onCleared() {

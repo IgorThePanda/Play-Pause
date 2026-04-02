@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -36,6 +37,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
@@ -78,7 +80,7 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
 
     val playbackOrder = remember(timeline, shuffleModeEnabled, mediaItemCount) {
         val list = mutableListOf<Int>()
-        if (!timeline.isEmpty) {
+        if (!timeline.isEmpty && mediaItemCount > 0) {
             val firstIndex = timeline.getFirstWindowIndex(shuffleModeEnabled)
             var current = firstIndex
             while (current != C.INDEX_UNSET) {
@@ -86,7 +88,7 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                 current = timeline.getNextWindowIndex(current, Player.REPEAT_MODE_OFF, shuffleModeEnabled)
                 if (list.size >= mediaItemCount) break
             }
-        } else {
+        } else if (mediaItemCount > 0) {
             for (i in 0 until mediaItemCount) list.add(i)
         }
         list
@@ -124,20 +126,29 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
             items(
                 count = totalDisplayCount,
                 key = { globalIndex -> 
-                    val i = globalIndex % playbackOrder.size
-                    val indexInPlayer = playbackOrder[i]
-                    val item = player.getMediaItemAt(indexInPlayer)
-                    "${item.mediaId}_${globalIndex}"
+                    val size = playbackOrder.size
+                    if (size == 0) return@items "empty_$globalIndex"
+                    val i = globalIndex % size
+                    val indexInPlayer = playbackOrder.getOrNull(i) ?: return@items "invalid_$globalIndex"
+                    val item = if (indexInPlayer in 0 until player.mediaItemCount) player.getMediaItemAt(indexInPlayer) else null
+                    "${item?.mediaId ?: "none"}_${globalIndex}"
                 }
             ) { globalIndex ->
-                val i = globalIndex % playbackOrder.size
-                val indexInPlayer = playbackOrder[i]
-                val item = player.getMediaItemAt(indexInPlayer)
-                
+                val size = playbackOrder.size
+                if (size == 0) return@items
+                val i = globalIndex % size
+                val indexInPlayer = playbackOrder.getOrNull(i) ?: return@items
+                val item = if (indexInPlayer in 0 until player.mediaItemCount) player.getMediaItemAt(indexInPlayer) else return@items
+
                 val isCurrent = indexInPlayer == currentIndex
                 val isPlayNext = item.mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false
 
-                val isFirstPlayNext = isPlayNext && (i == 0 || !(player.getMediaItemAt(playbackOrder[i-1]).mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false))
+                val prevItem = if (i > 0) {
+                    val prevIndex = playbackOrder.getOrNull(i - 1)
+                    if (prevIndex != null && prevIndex in 0 until player.mediaItemCount) player.getMediaItemAt(prevIndex) else null
+                } else null
+                
+                val isFirstPlayNext = isPlayNext && (prevItem == null || !(prevItem.mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false))
 
                 if (isFirstPlayNext) {
                     Row(
@@ -167,11 +178,14 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                     confirmValueChange = { value ->
                         if (value != SwipeToDismissBoxValue.Settled) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            player.removeMediaItem(indexInPlayer)
+                            // Safeguard removal: check if index is still valid
+                            if (indexInPlayer in 0 until player.mediaItemCount) {
+                                player.removeMediaItem(indexInPlayer)
+                            }
                             true
                         } else false
                     },
-                    positionalThreshold = { totalDistance -> 
+                    positionalThreshold = { totalDistance ->
                         val threshold = with(density) { 100.dp.toPx() }
                         maxOf(threshold, totalDistance * 0.25f)
                     }
@@ -186,7 +200,7 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                                 else -> MaterialTheme.colorScheme.error
                             }, label = "swipe_bg"
                         )
-                        
+
                         Box(
                             Modifier
                                 .fillMaxSize()
@@ -251,28 +265,32 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     AsyncImage(
-                                        model = item.mediaMetadata.artworkUri,
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(item.mediaMetadata.artworkUri)
+                                            .crossfade(true)
+                                            .size(120) // Optimization: Loaded at small size for the queue
+                                            .build(),
                                         contentDescription = null,
                                         modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)),
                                         contentScale = ContentScale.Crop,
                                         error = painterResource(R.drawable.ic_launcher_foreground)
                                     )
-                                    
+
                                     Spacer(modifier = Modifier.width(16.dp))
-                                    
+
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            item.mediaMetadata.title?.toString() ?: "Unknown", 
-                                            style = MaterialTheme.typography.bodyLarge, 
+                                            item.mediaMetadata.title?.toString() ?: "Unknown",
+                                            style = MaterialTheme.typography.bodyLarge,
                                             fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.Bold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             color = if (isCurrent) contentColorFor(artworkColors.secondary) else MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
-                                            item.mediaMetadata.artist?.toString() ?: "Unknown", 
+                                            item.mediaMetadata.artist?.toString() ?: "Unknown",
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = if (isCurrent) contentColorFor(artworkColors.secondary).copy(alpha = 0.8f) 
+                                            color = if (isCurrent) contentColorFor(artworkColors.secondary).copy(alpha = 0.8f)
                                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -299,12 +317,12 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                         }
                     }
                 }
-                
+
                 // Dividers
-                if (isCurrent && !isInfinite && i < playbackOrder.size - 1) {
-                    val nextIndex = playbackOrder[i+1]
-                    val nextItem = player.getMediaItemAt(nextIndex)
-                    val nextIsPlayNext = nextItem.mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false
+                if (isCurrent && !isInfinite && i < size - 1) {
+                    val nextIndex = playbackOrder.getOrNull(i + 1)
+                    val nextItem = if (nextIndex != null && nextIndex in 0 until player.mediaItemCount) player.getMediaItemAt(nextIndex) else null
+                    val nextIsPlayNext = nextItem?.mediaMetadata?.extras?.getBoolean("is_play_next", false) ?: false
                     if (!nextIsPlayNext) {
                         HorizontalDivider(
                             modifier = Modifier.padding(vertical = 12.dp, horizontal = 24.dp).animateItem(),

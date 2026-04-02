@@ -85,7 +85,6 @@ fun AlbumDetailView(
     
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         
-        // Expressive Background: Vibrant artwork glow that follows the scroll
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -110,12 +109,15 @@ fun AlbumDetailView(
                 Spacer(modifier = Modifier.height(headerHeight))
             }
 
-            items(album.songs, key = { it.id }) { song ->
-                val isThisPlaying = song.id == currentPlayingId
+            items(
+                items = album.songs, 
+                key = { it.id },
+                contentType = { "song_item" }
+            ) { song ->
                 Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
                     SongItem(
                         song = song,
-                        isPlaying = isThisPlaying,
+                        isPlaying = song.id == currentPlayingId, // Changed: Pass stable boolean
                         onClick = { onPlaySongs(album.songs, album.songs.indexOf(song)) },
                         onDetailsClick = { onSongDetails(song) },
                         onSwipePlayNext = { onSwipePlayNext(song) },
@@ -125,7 +127,6 @@ fun AlbumDetailView(
             }
         }
 
-        // --- REINVENTED COLLAPSIBLE HEADER ---
         val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val collapsedHeaderHeight = 100.dp + topPadding
         val currentHeaderHeight = lerp(headerHeight, collapsedHeaderHeight, collapseFraction.value)
@@ -143,19 +144,16 @@ fun AlbumDetailView(
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 
-                // 1. DYNAMIC ARTWORK: Shrinks and moves into the header "frame"
                 val artSize = lerp(260.dp, 44.dp, collapseFraction.value)
-                val artX = lerp(0.dp, 64.dp, collapseFraction.value) // Moves to right of back button
+                val artX = lerp(0.dp, 64.dp, collapseFraction.value)
                 val artY = lerp(100.dp, topPadding + 14.dp, collapseFraction.value)
                 
                 Surface(
                     modifier = Modifier
                         .padding(start = artX, top = artY)
                         .size(artSize)
-                        // Dynamic alignment swap
                         .align(if (collapseFraction.value < 0.5f) Alignment.TopCenter else Alignment.TopStart)
                         .graphicsLayer {
-                            // Subtly rotate back to 0 as it enters the header frame
                             rotationZ = -4f * (1f - collapseFraction.value)
                         },
                     shape = RoundedCornerShape(lerp(32.dp, 8.dp, collapseFraction.value)),
@@ -170,7 +168,6 @@ fun AlbumDetailView(
                     )
                 }
 
-                // 2. NAVIGATION: Back Button
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier
@@ -189,7 +186,6 @@ fun AlbumDetailView(
                     )
                 }
 
-                // 3. COLLAPSED INFO: Title & Artist sliding in next to the tiny art
                 if (collapseFraction.value > 0.8f) {
                     Column(
                         modifier = Modifier
@@ -215,7 +211,6 @@ fun AlbumDetailView(
                     }
                 }
 
-                // 4. EXPANDED INFO: Huge typography and strange buttons
                 if (collapseFraction.value < 0.7f) {
                     Column(
                         modifier = Modifier
@@ -251,7 +246,6 @@ fun AlbumDetailView(
 
                         Spacer(modifier = Modifier.height(28.dp))
 
-                        // Strange shapes: Circle Play, Squircle Shuffle
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(24.dp),
                             verticalAlignment = Alignment.CenterVertically

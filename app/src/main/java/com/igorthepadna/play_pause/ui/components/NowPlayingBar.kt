@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import kotlinx.coroutines.delay
@@ -67,10 +69,11 @@ fun NowPlayingBar(
     }
 
     LaunchedEffect(isPlaying, isDragging) {
-        while (isPlaying && !isDragging) {
+        if (!isPlaying || isDragging) return@LaunchedEffect
+        while (true) {
             currentPosition = player.currentPosition
             duration = player.duration
-            delay(250) // Drastically sped up to 4 times per second (250ms)
+            delay(500) // Reduced frequency to 2Hz for less UI pressure
         }
     }
 
@@ -138,7 +141,6 @@ fun NowPlayingBar(
         border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.2f))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // WHOLE BACKGROUND IS THE PROGRESS BAR
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
@@ -154,7 +156,11 @@ fun NowPlayingBar(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 AsyncImage(
-                    model = currentMediaItem?.mediaMetadata?.artworkUri,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(currentMediaItem?.mediaMetadata?.artworkUri)
+                        .crossfade(true)
+                        .size(160)
+                        .build(),
                     contentDescription = null,
                     modifier = Modifier
                         .size(52.dp)

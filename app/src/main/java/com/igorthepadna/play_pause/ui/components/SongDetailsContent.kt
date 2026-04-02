@@ -1,6 +1,8 @@
 package com.igorthepadna.play_pause.ui.components
 
 import android.media.MediaMetadataRetriever
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -9,16 +11,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.utils.formatDuration
+import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -27,6 +33,12 @@ import java.util.Locale
 fun SongDetailsContent(song: Song) {
     var genre by remember { mutableStateOf("Loading...") }
     var bitrate by remember { mutableStateOf("Loading...") }
+
+    val artworkColors = rememberArtworkColors(
+        artworkUri = song.albumArtUri,
+        defaultPrimary = MaterialTheme.colorScheme.surface,
+        defaultSecondary = MaterialTheme.colorScheme.primary
+    )
 
     LaunchedEffect(song.path) {
         withContext(Dispatchers.IO) {
@@ -48,7 +60,13 @@ fun SongDetailsContent(song: Song) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .background(
+                Brush.verticalGradient(
+                    0f to artworkColors.primary.copy(alpha = 0.2f),
+                    0.4f to MaterialTheme.colorScheme.surface
+                )
+            )
+            .padding(horizontal = 24.dp, vertical = 24.dp)
             .padding(bottom = 48.dp)
     ) {
         Row(
@@ -59,24 +77,26 @@ fun SongDetailsContent(song: Song) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = song.title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Black,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    letterSpacing = (-1).sp
                 )
                 Text(
                     text = song.artist,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    style = MaterialTheme.typography.titleLarge,
+                    color = artworkColors.secondary,
+                    fontWeight = FontWeight.Bold
                 )
             }
 
             Spacer(modifier = Modifier.width(16.dp))
 
             ElevatedCard(
-                modifier = Modifier.size(70.dp),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp)
+                modifier = Modifier.size(80.dp),
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 12.dp)
             ) {
                 AsyncImage(
                     model = song.albumArtUri,
@@ -88,7 +108,17 @@ fun SongDetailsContent(song: Song) {
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Text(
+            "SONG INFORMATION",
+            style = MaterialTheme.typography.labelMedium.copy(
+                color = artworkColors.secondary,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 2.sp
+            ),
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
 
         // Using standard Flow-like behavior with Column + Rows to avoid FlowRow binary mismatch crashes
         val details = listOf(
@@ -105,7 +135,7 @@ fun SongDetailsContent(song: Song) {
         androidx.compose.ui.layout.Layout(
             content = {
                 details.forEach { (icon, text) ->
-                    DetailPill(icon, text)
+                    DetailPill(icon, text, artworkColors.secondary)
                 }
             }
         ) { measurables, constraints ->
@@ -140,25 +170,27 @@ fun SongDetailsContent(song: Song) {
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            shape = RoundedCornerShape(20.dp),
+            color = artworkColors.secondary.copy(alpha = 0.05f),
+            border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.1f))
         ) {
             Row(
-                modifier = Modifier.padding(12.dp),
+                modifier = Modifier.padding(16.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(12.dp))
+                Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(20.dp), tint = artworkColors.secondary)
+                Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = song.path,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 20.sp
                 )
             }
         }
@@ -166,15 +198,15 @@ fun SongDetailsContent(song: Song) {
 }
 
 @Composable
-fun DetailPill(icon: ImageVector, text: String) {
+fun DetailPill(icon: ImageVector, text: String, color: Color) {
     SuggestionChip(
         onClick = { },
-        label = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        label = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold) },
+        icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color) },
         shape = RoundedCornerShape(16.dp),
         colors = SuggestionChipDefaults.suggestionChipColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-            labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+            containerColor = color.copy(alpha = 0.1f),
+            labelColor = MaterialTheme.colorScheme.onSurface
         ),
         border = null
     )

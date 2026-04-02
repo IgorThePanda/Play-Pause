@@ -49,6 +49,7 @@ import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.SquigglySlider
 import com.igorthepadna.play_pause.data.LyricLine
 import com.igorthepadna.play_pause.data.LyricWord
+import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.formatDuration
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
@@ -284,6 +285,8 @@ fun FullScreenPlayer(
     onDismiss: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragStopped: (Float) -> Unit,
+    onMoreClick: (Song) -> Unit,
+    onAddClick: (Song) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -291,7 +294,7 @@ fun FullScreenPlayer(
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
     
     val topPaddingPx = with(density) { 160.dp.toPx() }
-    val peekingHeightPx = with(density) { 72.dp.toPx() }
+    val peekingHeightPx = with(density) { 48.dp.toPx() } // Aggressively lowered to move queue to the very bottom
     val closedValue = screenHeightPx - peekingHeightPx
     
     val scope = rememberCoroutineScope()
@@ -307,6 +310,11 @@ fun FullScreenPlayer(
     var currentPosition by remember { mutableLongStateOf(player.currentPosition) }
     var duration by remember { mutableLongStateOf(player.duration) }
     var currentMediaItem by remember { mutableStateOf(player.currentMediaItem) }
+
+    val songs by viewModel.songs.collectAsStateWithLifecycle()
+    val currentSong = remember(songs, currentMediaItem) {
+        songs.find { it.id.toString() == currentMediaItem?.mediaId }
+    }
 
     val currentLyricIndex by remember(parsedLyrics, currentPosition) {
         derivedStateOf {
@@ -434,25 +442,25 @@ fun FullScreenPlayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                    .padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 4.dp), // Fixed padding issue
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Subtle handle for dragging
                 Box(
                     modifier = Modifier
-                        .padding(top = 8.dp)
+                        .padding(top = 4.dp)
                         .width(40.dp)
                         .height(4.dp)
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f), CircleShape)
                 )
 
-                Spacer(modifier = Modifier.weight(0.5f))
+                Spacer(modifier = Modifier.weight(0.1f)) // Moves everything up aggressively
 
                 // CONTENT AREA (Artwork or Synced Lyrics)
                 Box(
                     modifier = Modifier
                         .aspectRatio(1f)
-                        .fillMaxWidth(0.9f)
+                        .fillMaxWidth(0.8f) // Smaller artwork to prevent touching
                         .graphicsLayer {
                             scaleX = artScale
                             scaleY = artScale
@@ -549,7 +557,7 @@ fun FullScreenPlayer(
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(3f))
+                Spacer(modifier = Modifier.weight(2f)) // Pushes title and controls further down
 
                 Column(
                     horizontalAlignment = Alignment.Start,
@@ -574,7 +582,7 @@ fun FullScreenPlayer(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Column(modifier = Modifier.fillMaxWidth()) {
                     SquigglySlider(
@@ -635,23 +643,23 @@ fun FullScreenPlayer(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { player.seekToPrevious() }, modifier = Modifier.size(64.dp)) {
-                        Icon(Icons.Rounded.SkipPrevious, null, modifier = Modifier.size(48.dp))
+                    IconButton(onClick = { player.seekToPrevious() }, modifier = Modifier.size(60.dp)) {
+                        Icon(Icons.Rounded.SkipPrevious, null, modifier = Modifier.size(42.dp))
                     }
 
-                    Spacer(modifier = Modifier.width(24.dp))
+                    Spacer(modifier = Modifier.width(20.dp))
 
-                    val playPauseCorner by animateDpAsState(
-                        targetValue = if (isPlaying) 16.dp else 40.dp,
-                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        label = "corner"
+                    val morphProgress by animateFloatAsState(
+                        targetValue = if (isPlaying) 1f else 0f,
+                        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow),
+                        label = "morph"
                     )
                     
                     val playPauseScale by animateFloatAsState(
@@ -668,9 +676,9 @@ fun FullScreenPlayer(
                     ) {
                         Surface(
                             onClick = { if (isPlaying) player.pause() else player.play() },
-                            shape = RoundedCornerShape(playPauseCorner),
+                            shape = MorphingButtonShape(morphProgress),
                             color = artworkColors.secondary,
-                            modifier = Modifier.size(100.dp).graphicsLayer {
+                            modifier = Modifier.size(80.dp).graphicsLayer { // Even smaller button for compact screens
                                 scaleX = playPauseScale
                                 scaleY = playPauseScale
                             },
@@ -682,21 +690,21 @@ fun FullScreenPlayer(
                                 Icon(
                                     imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                     contentDescription = "Play/Pause",
-                                    modifier = Modifier.size(60.dp),
+                                    modifier = Modifier.size(48.dp),
                                     tint = contentColorFor(artworkColors.secondary)
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(24.dp))
+                    Spacer(modifier = Modifier.width(20.dp))
 
-                    IconButton(onClick = { player.seekToNext() }, modifier = Modifier.size(64.dp)) {
-                        Icon(Icons.Rounded.SkipNext, null, modifier = Modifier.size(48.dp))
+                    IconButton(onClick = { player.seekToNext() }, modifier = Modifier.size(60.dp)) {
+                        Icon(Icons.Rounded.SkipNext, null, modifier = Modifier.size(42.dp))
                     }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Surface(
                     shape = CircleShape,
@@ -704,7 +712,7 @@ fun FullScreenPlayer(
                     modifier = Modifier.padding(horizontal = 8.dp)
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -744,12 +752,12 @@ fun FullScreenPlayer(
                                 tint = if (isLyricsVisible) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant
                             ) 
                         }
-                        IconButton(onClick = { }) { Icon(Icons.Rounded.Add, null) }
-                        IconButton(onClick = { }) { Icon(Icons.Rounded.MoreHoriz, null) }
+                        IconButton(onClick = { currentSong?.let { onAddClick(it) } }) { Icon(Icons.Rounded.Add, null) }
+                        IconButton(onClick = { currentSong?.let { onMoreClick(it) } }) { Icon(Icons.Rounded.MoreHoriz, null) }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(80.dp))
+                Spacer(modifier = Modifier.height(64.dp)) // Extra safety space at the bottom
             }
 
             // PHYSICALLY BASED QUEUE SHEET
@@ -805,12 +813,12 @@ fun FullScreenPlayer(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(
                                 modifier = Modifier
-                                    .padding(top = 12.dp)
+                                    .padding(top = 10.dp)
                                     .width(48.dp)
                                     .height(4.dp)
                                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), CircleShape)
                             )
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(4.dp))
                             Text(
                                 "Queue", 
                                 style = MaterialTheme.typography.labelLarge, 

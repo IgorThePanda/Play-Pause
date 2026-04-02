@@ -1,6 +1,5 @@
 package com.igorthepadna.play_pause.ui.components
 
-import android.net.Uri
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
@@ -25,6 +24,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.Playlist
 import com.igorthepadna.play_pause.data.Song
@@ -41,7 +42,7 @@ import com.igorthepadna.play_pause.utils.rememberArtworkColors
 @Composable
 fun SongItem(
     song: Song,
-    isPlaying: Boolean,
+    isPlaying: Boolean, // Optimization: Boolean is stable, Long state change triggers mass recomposition
     onClick: () -> Unit,
     onDetailsClick: () -> Unit,
     onSwipePlayNext: () -> Unit,
@@ -63,7 +64,6 @@ fun SongItem(
                 else -> false
             }
         },
-        // Require swiping 25% of the screen width or at least 100dp to avoid accidental triggers
         positionalThreshold = { totalDistance -> 
             val threshold = with(density) { 100.dp.toPx() }
             maxOf(threshold, totalDistance * 0.25f)
@@ -135,7 +135,11 @@ fun SongItem(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     AsyncImage(
-                        model = song.albumArtUri,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(song.albumArtUri)
+                            .crossfade(true)
+                            .size(160) // Optimize: Don't load full-res art for small thumbnails
+                            .build(),
                         contentDescription = null,
                         modifier = Modifier
                             .size(56.dp)
@@ -224,7 +228,6 @@ fun PlaylistSelectionSheet(
             .padding(24.dp)
             .padding(bottom = 32.dp)
     ) {
-        // Song Preview Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -232,7 +235,10 @@ fun PlaylistSelectionSheet(
             verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
-                model = song.albumArtUri,
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(song.albumArtUri)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
                 modifier = Modifier
                     .size(64.dp)
@@ -268,7 +274,6 @@ fun PlaylistSelectionSheet(
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // Action Buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -383,7 +388,7 @@ fun PlaylistSelectionSheet(
                             showCreateDialog = false
                         }
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = artworkColors.primary)
+                    colors = ButtonDefaults.buttonColors(contentColor = artworkColors.primary)
                 ) {
                     Text("Create", fontWeight = FontWeight.ExtraBold)
                 }

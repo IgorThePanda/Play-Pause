@@ -39,16 +39,13 @@ fun SquigglySlider(
     
     var isDragging by remember { mutableStateOf(false) }
     
-    // Animate thumb radius when dragging
     val thumbRadius by animateFloatAsState(
         targetValue = if (isDragging) thumbRadiusDragging else thumbRadiusIdle,
         label = "ThumbRadius"
     )
     
-    // Phase for the squiggle animation
     var phase by remember { mutableStateOf(0f) }
     
-    // Animate amplitude based on isPlaying
     val currentAmplitude by animateFloatAsState(
         targetValue = if (isPlaying) maxAmplitudePx else 0f,
         animationSpec = spring(
@@ -58,20 +55,24 @@ fun SquigglySlider(
         label = "SquiggleAmplitude"
     )
 
-    // Update phase while playing
     LaunchedEffect(isPlaying) {
         if (isPlaying) {
-            var lastTime = withFrameMillis { it }
+            var lastTime = withFrameNanos { it }
             while (true) {
-                val currentTime = withFrameMillis { it }
-                val deltaTime = (currentTime - lastTime) / 1000f
-                // Slowed down the waves further (from 6f to 5f)
+                val currentTime = withFrameNanos { it }
+                val deltaTime = (currentTime - lastTime) / 1_000_000_000f
                 phase += deltaTime * 5f 
                 lastTime = currentTime
                 yield()
             }
         }
     }
+
+    // Optimization: Pre-calculate constants and reuse Path
+    val segmentLength = 6f // Increased for better performance on chugging devices
+    val frequency = 1 / 15f 
+    val envelopeDistance = with(density) { 16.dp.toPx() }
+    val path = remember { Path() }
 
     Canvas(
         modifier = modifier
@@ -110,7 +111,6 @@ fun SquigglySlider(
         val activeWidth = width * value
         val strokeWidthPx = 4.dp.toPx()
 
-        // 1. Draw inactive track
         if (activeWidth < width) {
             drawLine(
                 color = inactiveColor,
@@ -121,19 +121,14 @@ fun SquigglySlider(
             )
         }
 
-        // 2. Draw active track
         if (activeWidth > 0) {
-            val path = Path()
-            val segmentLength = 2f // px per segment
-            val frequency = 1 / 15f // wavelength control
-            
+            path.reset()
             path.moveTo(0f, centerY)
             
             var x = 0f
             while (x < activeWidth) {
-                // Envelope at the start and end of the active track to avoid artifacts
-                val startEnvelope = (x / 16.dp.toPx()).coerceIn(0f, 1f)
-                val endEnvelope = ((activeWidth - x) / 16.dp.toPx()).coerceIn(0f, 1f)
+                val startEnvelope = (x / envelopeDistance).coerceIn(0f, 1f)
+                val endEnvelope = ((activeWidth - x) / envelopeDistance).coerceIn(0f, 1f)
                 val combinedEnvelope = startEnvelope * endEnvelope
                 
                 val y = centerY + currentAmplitude * sin(x * frequency + phase) * combinedEnvelope
@@ -150,7 +145,6 @@ fun SquigglySlider(
             )
         }
 
-        // 3. Draw thumb
         drawCircle(
             color = activeColor,
             radius = thumbRadius,

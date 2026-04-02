@@ -11,11 +11,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.Album
 
@@ -45,23 +47,23 @@ fun AlbumCard(
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.weight(1f)) {
                         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                            AlbumCoverImage(displayCovers.getOrNull(0))
+                            AlbumCoverImage(displayCovers.getOrNull(0), size = 200)
                         }
                         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                            AlbumCoverImage(displayCovers.getOrNull(1))
+                            AlbumCoverImage(displayCovers.getOrNull(1), size = 200)
                         }
                     }
                     Row(modifier = Modifier.weight(1f)) {
                         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                            AlbumCoverImage(displayCovers.getOrNull(2))
+                            AlbumCoverImage(displayCovers.getOrNull(2), size = 200)
                         }
                         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                            AlbumCoverImage(displayCovers.getOrNull(3))
+                            AlbumCoverImage(displayCovers.getOrNull(3), size = 200)
                         }
                     }
                 }
             } else {
-                AlbumCoverImage(album.artworkUri)
+                AlbumCoverImage(album.artworkUri, size = 400)
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
@@ -85,9 +87,13 @@ fun AlbumCard(
 }
 
 @Composable
-private fun AlbumCoverImage(model: Any?) {
+private fun AlbumCoverImage(model: Any?, size: Int = 400) {
     AsyncImage(
-        model = model,
+        model = ImageRequest.Builder(LocalContext.current)
+            .data(model)
+            .crossfade(true)
+            .size(size)
+            .build(),
         contentDescription = null,
         modifier = Modifier.fillMaxSize(),
         contentScale = ContentScale.Crop,

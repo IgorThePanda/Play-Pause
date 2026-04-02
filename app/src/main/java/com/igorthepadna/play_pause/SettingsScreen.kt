@@ -115,6 +115,16 @@ fun MainSettingsContent(
             }
 
             SettingsSection(title = "Library") {
+                val scanOnlyMusic by viewModel.scanOnlyMusicFolder.collectAsStateWithLifecycle()
+                
+                SettingsSwitchItem(
+                    title = "Scan Only Music Folder",
+                    subtitle = "Skip Downloads folder for faster scanning",
+                    icon = Icons.Rounded.Folder,
+                    checked = scanOnlyMusic,
+                    onCheckedChange = { viewModel.setScanOnlyMusicFolder(it) }
+                )
+
                 SettingsActionItem(
                     title = "Rescan Media",
                     subtitle = "Search for new music files",

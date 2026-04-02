@@ -22,7 +22,6 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -36,15 +35,19 @@ private fun calculateScrollbarValues(state: LazyListState): ScrollbarValues? {
     val visibleItems = layoutInfo.visibleItemsInfo
     val totalItems = layoutInfo.totalItemsCount
     if (visibleItems.isEmpty() || totalItems <= visibleItems.size) return null
+    
     val firstItem = visibleItems.first()
     val lastItem = visibleItems.last()
+    
     val visibleItemsHeight = (lastItem.offset + lastItem.size - firstItem.offset).toFloat()
     val avgItemSize = visibleItemsHeight / visibleItems.size
     if (avgItemSize <= 0f) return null
+    
     val estimatedTotalHeight = avgItemSize * totalItems + layoutInfo.beforeContentPadding + layoutInfo.afterContentPadding
     val viewportHeight = layoutInfo.viewportSize.height.toFloat()
     val currentScroll = state.firstVisibleItemIndex * avgItemSize + state.firstVisibleItemScrollOffset
     val totalScrollRange = (estimatedTotalHeight - viewportHeight).coerceAtLeast(1f)
+    
     return ScrollbarValues(
         (currentScroll / totalScrollRange).coerceIn(0f, 1f),
         (viewportHeight / estimatedTotalHeight).coerceIn(0f, 1f)
@@ -56,29 +59,29 @@ private fun calculateScrollbarValues(state: LazyGridState): ScrollbarValues? {
     val visibleItems = layoutInfo.visibleItemsInfo
     val totalItems = layoutInfo.totalItemsCount
     if (visibleItems.isEmpty() || totalItems <= visibleItems.size) return null
+    
+    // Optimized grid calculation: Assume uniform grid if possible or use sampled average
     val firstItem = visibleItems.first()
-    var numColumns = 0
-    val firstY = firstItem.offset.y
-    for (i in visibleItems.indices) if (visibleItems[i].offset.y == firstY) numColumns++ else break
-    if (numColumns == 0) numColumns = 1
-    var visibleRowsCount = 0
-    var lastRowY = -1
-    for (i in visibleItems.indices) {
-        if (visibleItems[i].offset.y != lastRowY) {
-            visibleRowsCount++
-            lastRowY = visibleItems[i].offset.y
-        }
-    }
-    if (visibleRowsCount == 0) return null
     val lastItem = visibleItems.last()
+    
+    // Estimate columns by looking at offsets of the first few items
+    var numColumns = 1
+    val firstY = firstItem.offset.y
+    for (i in 1 until visibleItems.size) {
+        if (visibleItems[i].offset.y == firstY) numColumns++ else break
+    }
+
     val visibleRowsHeight = (lastItem.offset.y + lastItem.size.height - firstItem.offset.y).toFloat()
-    val avgRowSize = visibleRowsHeight / visibleRowsCount
+    val visibleRowsCount = (visibleItems.size + numColumns - 1) / numColumns
+    val avgRowSize = if (visibleRowsCount > 0) visibleRowsHeight / visibleRowsCount else 0f
     if (avgRowSize <= 0f) return null
+    
     val totalRows = (totalItems + numColumns - 1) / numColumns
     val estimatedTotalHeight = avgRowSize * totalRows + layoutInfo.beforeContentPadding + layoutInfo.afterContentPadding
     val viewportHeight = layoutInfo.viewportSize.height.toFloat()
     val currentScroll = (state.firstVisibleItemIndex / numColumns) * avgRowSize + state.firstVisibleItemScrollOffset
     val totalScrollRange = (estimatedTotalHeight - viewportHeight).coerceAtLeast(1f)
+    
     return ScrollbarValues(
         (currentScroll / totalScrollRange).coerceIn(0f, 1f),
         (viewportHeight / estimatedTotalHeight).coerceIn(0f, 1f)
@@ -96,12 +99,25 @@ fun Modifier.verticalScrollbar(
     if (!visible) return@composed this
     val scrollbarColor = color ?: MaterialTheme.colorScheme.primary
     var isDragging by remember { mutableStateOf(false) }
-    val alpha by animateFloatAsState(if (state.isScrollInProgress || isDragging) 1f else 0f, spring(stiffness = Spring.StiffnessLow), label = "alpha")
-    val currentWidth by animateDpAsState(if (isDragging) activeWidth else width, spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow), label = "width")
+    
+    // High-performance state tracking
+    val isScrolling by remember { derivedStateOf { state.isScrollInProgress } }
+    val alpha by animateFloatAsState(
+        targetValue = if (isScrolling || isDragging) 1f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "alpha"
+    )
+    val currentWidth by animateDpAsState(
+        targetValue = if (isDragging) activeWidth else width,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
+        label = "width"
+    )
+    
     val density = LocalDensity.current
     val topPaddingPx = with(density) { padding.calculateTopPadding().toPx() }
     val bottomPaddingPx = with(density) { padding.calculateBottomPadding().toPx() }
     val gutterWidthPx = with(density) { 24.dp.toPx() }
+    
     val values by remember(state) { derivedStateOf { calculateScrollbarValues(state) } }
     val scope = rememberCoroutineScope()
 
@@ -132,13 +148,19 @@ fun Modifier.verticalScrollbar(
         }
     }.drawWithContent {
         drawContent()
-        values?.let { v ->
-            if (alpha > 0.01f) {
+        if (alpha > 0.01f) {
+            values?.let { v ->
                 val scrollbarAreaHeight = size.height - topPaddingPx - bottomPaddingPx
                 if (scrollbarAreaHeight > 0f) {
                     val scrollbarHeight = (scrollbarAreaHeight * v.viewportFraction).coerceAtLeast(48.dp.toPx())
                     val scrollbarOffset = topPaddingPx + (v.progress * (scrollbarAreaHeight - scrollbarHeight))
-                    if (isDragging) drawRect(scrollbarColor.copy(alpha = 0.03f * alpha), Offset(size.width - gutterWidthPx, topPaddingPx), Size(gutterWidthPx, scrollbarAreaHeight))
+                    if (isDragging) {
+                        drawRect(
+                            color = scrollbarColor.copy(alpha = 0.03f * alpha),
+                            topLeft = Offset(size.width - gutterWidthPx, topPaddingPx),
+                            size = Size(gutterWidthPx, scrollbarAreaHeight)
+                        )
+                    }
                     drawScrollbar(scrollbarColor, alpha, currentWidth, scrollbarOffset, scrollbarHeight)
                 }
             }
@@ -157,12 +179,24 @@ fun Modifier.verticalScrollbar(
     if (!visible) return@composed this
     val scrollbarColor = color ?: MaterialTheme.colorScheme.primary
     var isDragging by remember { mutableStateOf(false) }
-    val alpha by animateFloatAsState(if (state.isScrollInProgress || isDragging) 1f else 0f, spring(stiffness = Spring.StiffnessLow), label = "alpha")
-    val currentWidth by animateDpAsState(if (isDragging) activeWidth else width, spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow), label = "width")
+    
+    val isScrolling by remember { derivedStateOf { state.isScrollInProgress } }
+    val alpha by animateFloatAsState(
+        targetValue = if (isScrolling || isDragging) 1f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "alpha"
+    )
+    val currentWidth by animateDpAsState(
+        targetValue = if (isDragging) activeWidth else width,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
+        label = "width"
+    )
+    
     val density = LocalDensity.current
     val topPaddingPx = with(density) { padding.calculateTopPadding().toPx() }
     val bottomPaddingPx = with(density) { padding.calculateBottomPadding().toPx() }
     val gutterWidthPx = with(density) { 24.dp.toPx() }
+    
     val values by remember(state) { derivedStateOf { calculateScrollbarValues(state) } }
     val scope = rememberCoroutineScope()
 
@@ -193,13 +227,19 @@ fun Modifier.verticalScrollbar(
         }
     }.drawWithContent {
         drawContent()
-        values?.let { v ->
-            if (alpha > 0.01f) {
+        if (alpha > 0.01f) {
+            values?.let { v ->
                 val scrollbarAreaHeight = size.height - topPaddingPx - bottomPaddingPx
                 if (scrollbarAreaHeight > 0f) {
                     val scrollbarHeight = (scrollbarAreaHeight * v.viewportFraction).coerceAtLeast(48.dp.toPx())
                     val scrollbarOffset = topPaddingPx + (v.progress * (scrollbarAreaHeight - scrollbarHeight))
-                    if (isDragging) drawRect(scrollbarColor.copy(alpha = 0.03f * alpha), Offset(size.width - gutterWidthPx, topPaddingPx), Size(gutterWidthPx, scrollbarAreaHeight))
+                    if (isDragging) {
+                        drawRect(
+                            color = scrollbarColor.copy(alpha = 0.03f * alpha),
+                            topLeft = Offset(size.width - gutterWidthPx, topPaddingPx),
+                            size = Size(gutterWidthPx, scrollbarAreaHeight)
+                        )
+                    }
                     drawScrollbar(scrollbarColor, alpha, currentWidth, scrollbarOffset, scrollbarHeight)
                 }
             }
@@ -210,13 +250,16 @@ fun Modifier.verticalScrollbar(
 @Composable
 fun ScrollbarLabel(state: LazyListState, padding: PaddingValues, labelProvider: (Int) -> String) {
     val values by remember(state) { derivedStateOf { calculateScrollbarValues(state) } }
+    val isScrolling by remember { derivedStateOf { state.isScrollInProgress } }
     val firstVisibleIndex by remember { derivedStateOf { state.firstVisibleItemIndex } }
-    val label = remember(firstVisibleIndex) { labelProvider(firstVisibleIndex) }
+    
+    // Defer label lookup to avoid recomposing the parent if label is same
+    val label = remember(firstVisibleIndex, labelProvider) { labelProvider(firstVisibleIndex) }
     val density = LocalDensity.current
     
     Box(modifier = Modifier.fillMaxSize()) {
         AnimatedVisibility(
-            visible = label.isNotEmpty() && state.isScrollInProgress,
+            visible = label.isNotEmpty() && isScrolling,
             enter = fadeIn() + slideInHorizontally(initialOffsetX = { it }),
             exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it }),
             modifier = Modifier.fillMaxSize()
@@ -254,13 +297,15 @@ fun ScrollbarLabel(state: LazyListState, padding: PaddingValues, labelProvider: 
 @Composable
 fun ScrollbarLabel(state: LazyGridState, padding: PaddingValues, labelProvider: (Int) -> String) {
     val values by remember(state) { derivedStateOf { calculateScrollbarValues(state) } }
+    val isScrolling by remember { derivedStateOf { state.isScrollInProgress } }
     val firstVisibleIndex by remember { derivedStateOf { state.firstVisibleItemIndex } }
-    val label = remember(firstVisibleIndex) { labelProvider(firstVisibleIndex) }
+    
+    val label = remember(firstVisibleIndex, labelProvider) { labelProvider(firstVisibleIndex) }
     val density = LocalDensity.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         AnimatedVisibility(
-            visible = label.isNotEmpty() && state.isScrollInProgress,
+            visible = label.isNotEmpty() && isScrolling,
             enter = fadeIn() + slideInHorizontally(initialOffsetX = { it }),
             exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it }),
             modifier = Modifier.fillMaxSize()
@@ -297,18 +342,41 @@ fun ScrollbarLabel(state: LazyGridState, padding: PaddingValues, labelProvider: 
 
 @Composable
 private fun ScrollbarLabelContainer(label: String) {
-    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, tonalElevation = 8.dp, shadowElevation = 4.dp) {
+    Surface(
+        shape = CircleShape, 
+        color = MaterialTheme.colorScheme.primaryContainer, 
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer, 
+        tonalElevation = 8.dp, 
+        shadowElevation = 4.dp
+    ) {
         Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
             Text(text = label, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
         }
     }
 }
 
-fun Modifier.verticalScrollbar(state: ScrollState, width: Dp = 8.dp, activeWidth: Dp = 12.dp, color: Color? = null, padding: PaddingValues = PaddingValues(0.dp)): Modifier = composed {
+fun Modifier.verticalScrollbar(
+    state: ScrollState, 
+    width: Dp = 8.dp, 
+    activeWidth: Dp = 12.dp, 
+    color: Color? = null, 
+    padding: PaddingValues = PaddingValues(0.dp)
+): Modifier = composed {
     val scrollbarColor = color ?: MaterialTheme.colorScheme.primary
     var isDragging by remember { mutableStateOf(false) }
-    val alpha by animateFloatAsState(if (state.isScrollInProgress || isDragging) 1f else 0f, spring(stiffness = Spring.StiffnessLow), label = "alpha")
-    val currentWidth by animateDpAsState(if (isDragging) activeWidth else width, spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow), label = "width")
+    
+    val isScrolling by remember { derivedStateOf { state.isScrollInProgress } }
+    val alpha by animateFloatAsState(
+        targetValue = if (isScrolling || isDragging) 1f else 0f, 
+        animationSpec = spring(stiffness = Spring.StiffnessLow), 
+        label = "alpha"
+    )
+    val currentWidth by animateDpAsState(
+        targetValue = if (isDragging) activeWidth else width, 
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow), 
+        label = "width"
+    )
+    
     val density = LocalDensity.current
     val topPaddingPx = with(density) { padding.calculateTopPadding().toPx() }
     val bottomPaddingPx = with(density) { padding.calculateBottomPadding().toPx() }
@@ -356,5 +424,10 @@ fun Modifier.verticalScrollbar(state: ScrollState, width: Dp = 8.dp, activeWidth
 private fun ContentDrawScope.drawScrollbar(color: Color, alpha: Float, width: Dp, scrollbarOffset: Float, scrollbarHeight: Float) {
     val thickness = width.toPx()
     val xOffset = size.width - thickness
-    drawRoundRect(color = color.copy(alpha = (if (width > 8.dp) 0.95f else 0.55f) * alpha), topLeft = Offset(xOffset, scrollbarOffset), size = Size(thickness, scrollbarHeight), cornerRadius = CornerRadius(thickness / 2, thickness / 2))
+    drawRoundRect(
+        color = color.copy(alpha = (if (width > 8.dp) 0.95f else 0.55f) * alpha), 
+        topLeft = Offset(xOffset, scrollbarOffset), 
+        size = Size(thickness, scrollbarHeight), 
+        cornerRadius = CornerRadius(thickness / 2, thickness / 2)
+    )
 }

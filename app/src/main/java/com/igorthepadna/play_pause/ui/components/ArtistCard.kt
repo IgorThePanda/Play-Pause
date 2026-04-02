@@ -13,12 +13,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.Artist
 
 @Composable
@@ -53,7 +57,11 @@ fun ArtistCard(
             Box(contentAlignment = Alignment.Center) {
                 if (model != null) {
                     AsyncImage(
-                        model = model,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(model)
+                            .crossfade(true)
+                            .size(400) // Optimization: Loaded at fixed size for the grid
+                            .build(),
                         contentDescription = artist.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,

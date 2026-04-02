@@ -46,10 +46,10 @@ class MusicRepository(private val context: Context) {
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
 
         context.contentResolver.query(
-            collection, 
-            projection, 
-            selection, 
-            null, 
+            collection,
+            projection,
+            selection,
+            null,
             "${MediaStore.Audio.Media.TITLE} ASC"
         )?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -98,9 +98,9 @@ class MusicRepository(private val context: Context) {
                     albumId = albumId,
                     year = year,
                     bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null,
-                    lyrics = null 
+                    lyrics = null
                 )
-                
+
                 songList.add(song)
             }
         }
@@ -140,7 +140,7 @@ class MusicRepository(private val context: Context) {
 
     suspend fun getAlbums(songs: List<Song>): List<Album> = withContext(Dispatchers.IO) {
         if (cachedAlbums != null && songs === cachedSongs) return@withContext cachedAlbums!!
-        
+
         val albums = songs.groupBy { it.albumId }.map { (albumId, albumSongs) ->
             val firstSong = albumSongs.first()
             val albumDir = File(firstSong.path).parentFile
@@ -167,7 +167,7 @@ class MusicRepository(private val context: Context) {
                     }
                 }
             }
-            
+
             if (albumArtworkUri == null) {
                 albumArtworkUri = firstSong.albumArtUri
             }
@@ -282,7 +282,7 @@ class MusicRepository(private val context: Context) {
         return null
     }
 
-    suspend fun scanMusicFolders() = withContext(Dispatchers.IO) {
+    suspend fun scanMusicFolders(onlyMusicFolder: Boolean = false) = withContext(Dispatchers.IO) {
         val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
         val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
 
@@ -298,7 +298,7 @@ class MusicRepository(private val context: Context) {
         }
 
         if (musicDir.exists()) collectFiles(musicDir)
-        if (downloadDir.exists()) collectFiles(downloadDir)
+        if (!onlyMusicFolder && downloadDir.exists()) collectFiles(downloadDir)
 
         if (filesToScan.isNotEmpty()) {
             MediaScannerConnection.scanFile(context, filesToScan.toTypedArray(), null, null)
