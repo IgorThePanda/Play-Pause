@@ -300,7 +300,7 @@ fun FullScreenPlayer(
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
     
     val topPaddingPx = with(density) { 160.dp.toPx() }
-    val peekingHeightPx = with(density) { 48.dp.toPx() } // Aggressively lowered to move queue to the very bottom
+    val peekingHeightPx = with(density) { 48.dp.toPx() } 
     val closedValue = screenHeightPx - peekingHeightPx
     
     val scope = rememberCoroutineScope()
@@ -395,16 +395,31 @@ fun FullScreenPlayer(
 
     var buttonCenter by remember { mutableStateOf(Offset.Zero) }
 
+    // EXPRESSIVE MOTION STATES
     val artScale by animateFloatAsState(
-        targetValue = if (isPlaying && !isLyricsVisible) 1.05f else 1.0f,
-        animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessLow),
-        label = "art_breathing"
+        targetValue = when {
+            isLyricsVisible -> 1.12f // Balanced scale (~90% width) - big but safe from edges
+            isPlaying -> 1.08f
+            else -> 1.0f
+        },
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
+        label = "art_scale"
     )
     
     val artCorner by animateDpAsState(
-        targetValue = if (isPlaying && !isLyricsVisible) 20.dp else 60.dp,
+        targetValue = when {
+            isLyricsVisible -> 12.dp // Very small rounds for that square expressive look
+            isPlaying -> 24.dp
+            else -> 64.dp
+        },
         animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
         label = "art_corner"
+    )
+
+    val artBlur by animateDpAsState(
+        targetValue = if (isLyricsVisible) 40.dp else 0.dp,
+        animationSpec = tween(800, easing = FastOutSlowInEasing),
+        label = "art_blur"
     )
 
     Surface(
@@ -454,10 +469,9 @@ fun FullScreenPlayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 4.dp), // Fixed padding issue
+                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 4.dp), // Increased top padding
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Subtle handle for dragging
                 Box(
                     modifier = Modifier
                         .padding(top = 4.dp)
@@ -466,16 +480,17 @@ fun FullScreenPlayer(
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f), CircleShape)
                 )
 
-                Spacer(modifier = Modifier.weight(0.1f)) // Moves everything up aggressively
+                // Dynamic spacer that pushes artwork down more when lyrics are visible to avoid overlapping notifications
+                val topSpacerWeight by animateFloatAsState(if (isLyricsVisible) 0.6f else 0.4f, label = "top_spacer")
+                Spacer(modifier = Modifier.weight(topSpacerWeight))
 
                 // CONTENT AREA (Artwork or Synced Lyrics)
                 Box(
                     modifier = Modifier
                         .aspectRatio(1f)
-                        .fillMaxWidth(0.8f),
+                        .fillMaxWidth(0.8f), // Base width
                     contentAlignment = Alignment.Center
                 ) {
-                    // Combined Container for Artwork, Blur, and Lyrics
                     Surface(
                         modifier = Modifier
                             .fillMaxSize()
@@ -493,12 +508,12 @@ fun FullScreenPlayer(
                                 contentDescription = null,
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .blur(if (isLyricsVisible) 30.dp else 0.dp),
+                                    .blur(artBlur),
                                 contentScale = ContentScale.Crop,
                                 error = painterResource(R.drawable.ic_launcher_foreground)
                             )
                             
-                            // EXPRESSIVE LYRICS OVERLAY (Clipped to Container)
+                            // EXPRESSIVE LYRICS OVERLAY (Uses the whole extended artwork area)
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = isLyricsVisible,
                                 enter = fadeIn(animationSpec = tween(600)) + scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessLow)),
@@ -507,8 +522,7 @@ fun FullScreenPlayer(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(Color.Black.copy(alpha = 0.45f))
-                                        .padding(16.dp),
+                                        .background(Color.Black.copy(alpha = 0.45f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (parsedLyrics.isNotEmpty()) {
@@ -517,7 +531,7 @@ fun FullScreenPlayer(
                                             modifier = Modifier.fillMaxSize(),
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.spacedBy(lyricLineSpacing.dp, Alignment.CenterVertically),
-                                            contentPadding = PaddingValues(vertical = 100.dp)
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 100.dp) // Minimal horizontal padding to use full width
                                         ) {
                                             itemsIndexed(parsedLyrics) { index, lyric ->
                                                 LyricLineView(
@@ -540,7 +554,8 @@ fun FullScreenPlayer(
                                         LazyColumn(
                                             modifier = Modifier.fillMaxSize(),
                                             horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center
+                                            verticalArrangement = Arrangement.Center,
+                                            contentPadding = PaddingValues(16.dp)
                                         ) {
                                             item {
                                                 Text(
@@ -553,7 +568,6 @@ fun FullScreenPlayer(
                                                     color = Color.White,
                                                     textAlign = TextAlign.Center,
                                                     modifier = Modifier
-                                                        .padding(16.dp)
                                                         .clickable { isLyricsVisible = false }
                                                 )
                                             }
@@ -576,7 +590,7 @@ fun FullScreenPlayer(
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(2f)) // Pushes title and controls further down
+                Spacer(modifier = Modifier.weight(2f))
 
                 Column(
                     horizontalAlignment = Alignment.Start,
@@ -635,22 +649,36 @@ fun FullScreenPlayer(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         
+                        val bitrate by viewModel.currentBitrate.collectAsStateWithLifecycle()
+                        val bitrateStr = bitrate ?: "Loading..."
+                        
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier
-                                .background(artworkColors.secondary.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .background(artworkColors.secondary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                                .border(1.dp, artworkColors.secondary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
-                            val bitrateStr = currentMediaItem?.mediaMetadata?.extras?.getString("bitrate") ?: "320 kbps"
                             val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
                             val qualityIcon = when {
                                 bitrateValue >= 1000 -> Icons.Rounded.Album
                                 bitrateValue >= 256 -> Icons.Rounded.HighQuality
                                 else -> Icons.Rounded.Sd
                             }
-                            Icon(qualityIcon, null, modifier = Modifier.size(14.dp), tint = artworkColors.secondary)
-                            Text(bitrateStr, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = artworkColors.secondary)
+                            Icon(
+                                imageVector = qualityIcon, 
+                                contentDescription = null, 
+                                modifier = Modifier.size(16.dp), 
+                                tint = artworkColors.secondary
+                            )
+                            Text(
+                                text = bitrateStr.uppercase(), 
+                                style = MaterialTheme.typography.labelSmall, 
+                                fontWeight = FontWeight.Black, 
+                                color = artworkColors.secondary,
+                                letterSpacing = 0.5.sp
+                            )
                         }
 
                         Text(
@@ -697,7 +725,7 @@ fun FullScreenPlayer(
                             onClick = { if (isPlaying) player.pause() else player.play() },
                             shape = MorphingButtonShape(morphProgress),
                             color = artworkColors.secondary,
-                            modifier = Modifier.size(80.dp).graphicsLayer { // Even smaller button for compact screens
+                            modifier = Modifier.size(80.dp).graphicsLayer {
                                 scaleX = playPauseScale
                                 scaleY = playPauseScale
                             },
@@ -761,9 +789,7 @@ fun FullScreenPlayer(
                         }
                         IconButton(onClick = { 
                             isLyricsVisible = !isLyricsVisible
-                            if (isLyricsVisible) {
-                                viewModel.loadLyricsForCurrentSong()
-                            }
+                            // loadLyricsForCurrentSong is already handled by player transition and startup
                         }) {
                             Icon(
                                 Icons.Rounded.Lyrics, 
@@ -776,7 +802,7 @@ fun FullScreenPlayer(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(64.dp)) // Extra safety space at the bottom
+                Spacer(modifier = Modifier.height(64.dp))
             }
 
             // PHYSICALLY BASED QUEUE SHEET
@@ -838,11 +864,12 @@ fun FullScreenPlayer(
                                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), CircleShape)
                             )
                             Spacer(Modifier.height(4.dp))
+                            val queueTextAlpha by animateFloatAsState(if (isQueueVisible) 1f else 0.6f)
                             Text(
                                 "Queue", 
                                 style = MaterialTheme.typography.labelLarge, 
                                 fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = queueTextAlpha)
                             )
                         }
                     }

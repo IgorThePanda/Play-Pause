@@ -138,6 +138,20 @@ class MusicRepository(private val context: Context) {
         }
     }
 
+    suspend fun getDetailedBitrate(path: String): String? = withContext(Dispatchers.IO) {
+        if (path.isEmpty()) return@withContext null
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(path)
+            val br = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+            if (br != null) "${br.toInt() / 1000} kbps" else null
+        } catch (e: Exception) {
+            null
+        } finally {
+            try { retriever.release() } catch (e: Exception) {}
+        }
+    }
+
     suspend fun getAlbums(songs: List<Song>): List<Album> = withContext(Dispatchers.IO) {
         if (cachedAlbums != null && songs === cachedSongs) return@withContext cachedAlbums!!
 

@@ -57,8 +57,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentLyrics = MutableStateFlow<String?>(null)
     val currentLyrics = _currentLyrics.asStateFlow()
 
+    private val _currentBitrate = MutableStateFlow<String?>(null)
+    val currentBitrate = _currentBitrate.asStateFlow()
+
     private val _isLyricsLoading = MutableStateFlow(false)
     val isLyricsLoading = _isLyricsLoading.asStateFlow()
+
+    private var lastLoadedMediaId: Long = -1L
 
     private val _playlists = MutableStateFlow<List<Playlist>>(listOf(
         Playlist(id = "favorites", name = "Favorites", isFavorite = true)
@@ -289,12 +294,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val currentItem = player.currentMediaItem ?: return
         val mediaId = currentItem.mediaId.toLongOrNull() ?: return
 
+        // Skip if already loaded for this specific song
+        if (mediaId == lastLoadedMediaId && (_currentLyrics.value != null || _currentBitrate.value != null)) {
+            return
+        }
+
         val song = _songs.value.find { it.id == mediaId } ?: return
 
         viewModelScope.launch {
             _isLyricsLoading.value = true
-            _currentLyrics.value = null // Clear old lyrics while loading
-            _currentLyrics.value = repository.getLyrics(song.path)
+            
+            // Only clear if the song has actually changed
+            if (mediaId != lastLoadedMediaId) {
+                _currentLyrics.value = null
+                _currentBitrate.value = null
+                lastLoadedMediaId = mediaId
+            }
+            
+            launch { 
+                if (_currentLyrics.value == null) {
+                    _currentLyrics.value = repository.getLyrics(song.path)
+                }
+            }
+            launch { 
+                if (_currentBitrate.value == null) {
+                    _currentBitrate.value = repository.getDetailedBitrate(song.path)
+                }
+            }
+            
             _isLyricsLoading.value = false
         }
     }
@@ -380,9 +407,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             _currentPlayingId.value = mediaItem?.mediaId?.toLongOrNull() ?: -1L
-            // Set loading immediately to prevent "unavailable" flash
-            _isLyricsLoading.value = true
-            _currentLyrics.value = null
+            // Don't clear manually here, let loadLyricsForCurrentSong handle it gracefully
             loadLyricsForCurrentSong()
         }
     }
