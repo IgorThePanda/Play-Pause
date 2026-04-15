@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import java.io.InputStream
+import java.io.OutputStream
 
 enum class ThemeMode {
     LIGHT, DARK, AUTO
@@ -65,10 +68,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var lastLoadedMediaId: Long = -1L
 
-    private val _playlists = MutableStateFlow<List<Playlist>>(listOf(
-        Playlist(id = "favorites", name = "Favorites", isFavorite = true)
-    ))
-    val playlists = _playlists.asStateFlow()
+    val playlists = repository.getAllPlaylists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
@@ -189,12 +190,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedArtistName = MutableStateFlow<String?>(null)
     val selectedArtistName = _selectedArtistName.asStateFlow()
 
+    private val _selectedPlaylistId = MutableStateFlow<String?>(null)
+    val selectedPlaylistId = _selectedPlaylistId.asStateFlow()
+
     val selectedAlbum = combine(_selectedAlbumId, sortedAlbums) { id, albums ->
         albums.find { it.id == id }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val selectedArtist = combine(_selectedArtistName, sortedArtists) { name, artists ->
         artists.find { it.name == name }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val selectedPlaylist = _selectedPlaylistId.flatMapLatest { id ->
+        if (id == null) flowOf(null)
+        else repository.getPlaylistWithSongs(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun setSearchQuery(query: String) {
@@ -207,6 +217,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSelectedArtistName(name: String?) {
         _selectedArtistName.value = name
+    }
+
+    fun setSelectedPlaylistId(id: String?) {
+        _selectedPlaylistId.value = id
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -272,20 +286,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadSongs(refresh: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
-            _isRefreshing.value = true
-            if (refresh) repository.scanMusicFolders(_scanOnlyMusicFolder.value)
+            val onlyMusic = _scanOnlyMusicFolder.value
+            
+            if (refresh) {
+                _isRefreshing.value = true
+                repository.scanMusicFolders(onlyMusic)
+            }
 
-            val newSongs = repository.getSongs()
-            _songs.value = newSongs
-
-            // Perform all heavy processing here, while the loading indicator is up
-            val albums = repository.getAlbums(newSongs)
+            // 1. Fetch data (either from cache or by scanning MediaStore)
+            val songs = repository.getSongs(useCache = !refresh, onlyMusicFolder = onlyMusic)
+            _songs.value = songs
+            
+            val albums = repository.getAlbums(songs, useCache = !refresh)
             _allAlbums.value = albums
-
-            val artists = repository.getArtists(newSongs, albums)
+            
+            val artists = repository.getArtists(songs, albums, useCache = !refresh)
             _allArtists.value = artists
 
-            _isRefreshing.value = false
+            if (refresh) {
+                _isRefreshing.value = false
+            }
         }
     }
 
@@ -311,12 +331,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lastLoadedMediaId = mediaId
             }
             
-            launch { 
+            launch {
                 if (_currentLyrics.value == null) {
                     _currentLyrics.value = repository.getLyrics(song.path)
                 }
             }
-            launch { 
+            launch {
                 if (_currentBitrate.value == null) {
                     _currentBitrate.value = repository.getDetailedBitrate(song.path)
                 }
@@ -359,37 +379,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun addPlayNext(song: Song) {
         val player = _player.value ?: return
         val index = if (player.mediaItemCount == 0) 0 else player.currentMediaItemIndex + 1
-        player.addMediaItem(index, song.toMediaItem())
+        player.addMediaItem(index, song.toMediaItem(isPlayNext = true))
     }
 
     fun addToPlaylist(playlistId: String, songId: Long) {
-        _playlists.value = _playlists.value.map { playlist ->
-            if (playlist.id == playlistId) {
-                if (!playlist.songs.contains(songId)) {
-                    playlist.copy(songs = playlist.songs + songId)
-                } else playlist
-            } else playlist
+        viewModelScope.launch {
+            repository.addSongToPlaylist(playlistId, songId)
+        }
+    }
+
+    fun removeFromPlaylist(playlistId: String, songId: Long) {
+        viewModelScope.launch {
+            repository.removeSongFromPlaylist(playlistId, songId)
         }
     }
 
     fun createPlaylist(name: String) {
-        val newPlaylist = Playlist(id = UUID.randomUUID().toString(), name = name)
-        _playlists.value = _playlists.value + newPlaylist
-    }
-
-    fun toggleFavorite(songId: Long) {
-        _playlists.value = _playlists.value.map { playlist ->
-            if (playlist.id == "favorites") {
-                if (playlist.songs.contains(songId)) {
-                    playlist.copy(songs = playlist.songs - songId)
-                } else {
-                    playlist.copy(songs = playlist.songs + songId)
-                }
-            } else playlist
+        viewModelScope.launch {
+            repository.createPlaylist(name)
         }
     }
 
-    private fun Song.toMediaItem(): MediaItem {
+    fun toggleFavorite(songId: Long) {
+        viewModelScope.launch {
+            val favoritesId = "favorites"
+            // Ensure Favorites playlist exists
+            val playlists = repository.getAllPlaylists().first()
+            if (playlists.none { it.id == favoritesId }) {
+                repository.createPlaylist("Favorites", favoritesId, isFavorite = true)
+            }
+            
+            val playlistSongs = repository.getSongsForPlaylist(favoritesId).first()
+            if (playlistSongs.contains(songId)) {
+                repository.removeSongFromPlaylist(favoritesId, songId)
+            } else {
+                repository.addSongToPlaylist(favoritesId, songId)
+            }
+        }
+    }
+
+    private fun Song.toMediaItem(isPlayNext: Boolean = false): MediaItem {
+        val extras = Bundle().apply {
+            putBoolean("is_play_next", isPlayNext)
+        }
         return MediaItem.Builder()
             .setMediaId(id.toString())
             .setUri(uri)
@@ -399,6 +431,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .setArtist(artist)
                     .setAlbumTitle(album)
                     .setArtworkUri(albumArtUri)
+                    .setExtras(extras)
                     .build()
             )
             .build()
@@ -415,5 +448,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         _player.value?.removeListener(playerListener)
+    }
+
+    fun exportPlaylists(outputStream: OutputStream) {
+        viewModelScope.launch {
+            repository.exportPlaylists(outputStream)
+        }
+    }
+
+    fun importPlaylists(inputStream: InputStream) {
+        viewModelScope.launch {
+            repository.importPlaylists(inputStream)
+        }
     }
 }

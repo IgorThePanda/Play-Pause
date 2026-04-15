@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material3.*
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,26 +49,18 @@ fun SongItem(
     onSwipeAddToPlaylist: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val density = LocalDensity.current
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    onSwipePlayNext()
-                    false
-                }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    onSwipeAddToPlaylist()
-                    false
-                }
-                else -> false
+    val dismissState = rememberSwipeToDismissBoxState()
+
+    if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+        androidx.compose.runtime.LaunchedEffect(dismissState.currentValue) {
+            when (dismissState.currentValue) {
+                SwipeToDismissBoxValue.StartToEnd -> onSwipePlayNext()
+                SwipeToDismissBoxValue.EndToStart -> onSwipeAddToPlaylist()
+                else -> {}
             }
-        },
-        positionalThreshold = { totalDistance -> 
-            val threshold = with(density) { 100.dp.toPx() }
-            maxOf(threshold, totalDistance * 0.25f)
+            dismissState.snapTo(SwipeToDismissBoxValue.Settled)
         }
-    )
+    }
 
     SwipeToDismissBox(
         state = dismissState,
@@ -155,10 +148,9 @@ fun SongItem(
                                 .background(Color.Black.copy(alpha = 0.3f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            CircularProgressIndicator(
+                            LoadingIndicator(
                                 modifier = Modifier.size(24.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
+                                color = Color.White
                             )
                         }
                     }

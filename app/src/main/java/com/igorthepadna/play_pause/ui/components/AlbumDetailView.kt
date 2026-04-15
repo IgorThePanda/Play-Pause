@@ -1,6 +1,6 @@
 package com.igorthepadna.play_pause.ui.components
 
-import androidx.compose.animation.core.*
+import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -19,19 +19,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.Song
+import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
 
@@ -46,21 +44,6 @@ fun AlbumDetailView(
     onSwipeAddToPlaylist: (Song) -> Unit
 ) {
     val scrollState = rememberLazyListState()
-    val headerHeight = 520.dp
-    val headerHeightPx = with(LocalDensity.current) { headerHeight.toPx() }
-
-    val scrollOffset = remember { derivedStateOf {
-        if (scrollState.firstVisibleItemIndex == 0) {
-            scrollState.firstVisibleItemScrollOffset.toFloat()
-        } else {
-            headerHeightPx
-        }
-    } }
-
-    val collapseFraction = remember { derivedStateOf {
-        (scrollOffset.value / headerHeightPx).coerceIn(0f, 1f)
-    } }
-
     val artworkColors = rememberArtworkColors(
         artworkUri = album.artworkUri,
         defaultPrimary = MaterialTheme.colorScheme.surface,
@@ -81,23 +64,30 @@ fun AlbumDetailView(
         onDispose { player.removeListener(listener) }
     }
 
-    val squircleShape = RoundedCornerShape(24.dp)
-    
+    val bannerThresholdPx = with(LocalDensity.current) { 280.dp.toPx() }
+    val showBanner by remember {
+        derivedStateOf {
+            scrollState.firstVisibleItemIndex > 0 || scrollState.firstVisibleItemScrollOffset > bannerThresholdPx
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         
+        // Expressive Background Gradient with Artwork Colors
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { translationY = -scrollOffset.value * 0.5f }
                 .background(
                     Brush.verticalGradient(
-                        0f to artworkColors.primary.copy(alpha = 0.4f),
-                        0.4f to MaterialTheme.colorScheme.surface
+                        0f to artworkColors.primary.copy(alpha = 0.35f),
+                        0.5f to MaterialTheme.colorScheme.surface
                     )
                 )
         )
 
-        val bottomPadding = PaddingValues(bottom = 160.dp)
+        val bottomPadding = PaddingValues(bottom = 120.dp)
+        val hasMultipleDiscs = remember(album.songs) { album.songs.any { it.discNumber > 1 } }
+        
         LazyColumn(
             state = scrollState,
             modifier = Modifier
@@ -106,178 +96,268 @@ fun AlbumDetailView(
             contentPadding = bottomPadding
         ) {
             item {
-                Spacer(modifier = Modifier.height(headerHeight))
+                AlbumHeader(
+                    album = album,
+                    artworkColors = artworkColors,
+                    onBack = onBack,
+                    onPlay = { onPlaySongs(album.songs, 0) },
+                    onShuffle = { onPlaySongs(album.songs.shuffled(), 0) }
+                )
             }
 
-            items(
-                items = album.songs, 
-                key = { it.id },
-                contentType = { "song_item" }
-            ) { song ->
-                Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-                    SongItem(
-                        song = song,
-                        isPlaying = song.id == currentPlayingId, // Changed: Pass stable boolean
-                        onClick = { onPlaySongs(album.songs, album.songs.indexOf(song)) },
-                        onDetailsClick = { onSongDetails(song) },
-                        onSwipePlayNext = { onSwipePlayNext(song) },
-                        onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) }
-                    )
-                }
-            }
-        }
-
-        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-        val collapsedHeaderHeight = 100.dp + topPadding
-        val currentHeaderHeight = lerp(headerHeight, collapsedHeaderHeight, collapseFraction.value)
-
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(currentHeaderHeight),
-            color = if (collapseFraction.value > 0.9f) {
-                artworkColors.primary.copy(alpha = 0.98f)
-            } else {
-                Color.Transparent
-            },
-            tonalElevation = if (collapseFraction.value > 0.9f) 8.dp else 0.dp
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                
-                val artSize = lerp(260.dp, 44.dp, collapseFraction.value)
-                val artX = lerp(0.dp, 64.dp, collapseFraction.value)
-                val artY = lerp(100.dp, topPadding + 14.dp, collapseFraction.value)
-                
-                Surface(
-                    modifier = Modifier
-                        .padding(start = artX, top = artY)
-                        .size(artSize)
-                        .align(if (collapseFraction.value < 0.5f) Alignment.TopCenter else Alignment.TopStart)
-                        .graphicsLayer {
-                            rotationZ = -4f * (1f - collapseFraction.value)
-                        },
-                    shape = RoundedCornerShape(lerp(32.dp, 8.dp, collapseFraction.value)),
-                    tonalElevation = 16.dp,
-                    shadowElevation = 24.dp
-                ) {
-                    AsyncImage(
-                        model = album.artworkUri,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier
-                        .statusBarsPadding()
-                        .padding(8.dp)
-                        .align(Alignment.TopStart)
-                        .background(
-                            Color.Black.copy(alpha = 0.1f * (1f - collapseFraction.value)),
-                            CircleShape
-                        )
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.ArrowBack, 
-                        contentDescription = "Back",
-                        tint = if (collapseFraction.value > 0.8f) contentColorFor(artworkColors.primary) else MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                if (collapseFraction.value > 0.8f) {
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .statusBarsPadding()
-                            .padding(start = 124.dp, end = 16.dp)
-                            .graphicsLayer { alpha = (collapseFraction.value - 0.8f) * 5f }
-                    ) {
-                        Text(
-                            text = album.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = contentColorFor(artworkColors.primary)
-                        )
-                        Text(
-                            text = album.artist,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = artworkColors.secondary,
-                            fontWeight = FontWeight.Bold
-                        )
+            album.songs.groupBy { it.discNumber }.forEach { (discNumber, discSongs) ->
+                if (hasMultipleDiscs) {
+                    item(key = "disc_$discNumber") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, top = 20.dp, bottom = 4.dp)
+                                .animateItem(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Rounded.Album,
+                                contentDescription = null,
+                                tint = artworkColors.secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "DISK $discNumber",
+                                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp),
+                                fontWeight = FontWeight.Black,
+                                color = artworkColors.secondary
+                            )
+                        }
                     }
                 }
 
-                if (collapseFraction.value < 0.7f) {
-                    Column(
+                items(
+                    items = discSongs,
+                    key = { it.id },
+                    contentType = { "song_item" }
+                ) { song ->
+                    val isFirst = discSongs.firstOrNull()?.id == song.id
+                    val isLast = discSongs.lastOrNull()?.id == song.id
+                    
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 380.dp)
-                            .graphicsLayer { 
-                                alpha = 1f - (collapseFraction.value * 3f).coerceIn(0f, 1f)
-                            },
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .height(IntrinsicSize.Min) // Important for fillMaxHeight to work
+                            .padding(start = if (hasMultipleDiscs) 24.dp else 16.dp, end = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = album.title,
-                            style = MaterialTheme.typography.headlineLarge.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 38.sp,
-                                letterSpacing = (-1.5).sp,
-                                lineHeight = 40.sp,
-                                textAlign = TextAlign.Center
-                            ),
-                            modifier = Modifier.padding(horizontal = 32.dp),
-                            maxLines = 2
-                        )
+                        if (hasMultipleDiscs) {
+                            // Vertical accent line for the disc group - Matching Queue style
+                            Box(
+                                modifier = Modifier
+                                    .width(3.dp)
+                                    .fillMaxHeight()
+                                    .padding(
+                                        top = if (isFirst) 8.dp else 0.dp,
+                                        bottom = if (isLast) 8.dp else 0.dp
+                                    )
+                                    .clip(RoundedCornerShape(
+                                        topStart = if (isFirst) 2.dp else 0.dp,
+                                        topEnd = if (isFirst) 2.dp else 0.dp,
+                                        bottomStart = if (isLast) 2.dp else 0.dp,
+                                        bottomEnd = if (isLast) 2.dp else 0.dp
+                                    ))
+                                    .background(artworkColors.secondary.copy(alpha = 0.4f))
+                            )
+                            Spacer(Modifier.width(12.dp))
+                        }
                         
-                        Text(
-                            text = album.artist.uppercase(),
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                color = artworkColors.secondary,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 4.sp
-                            ),
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(28.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(24.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Button(
-                                onClick = { onPlaySongs(album.songs, 0) },
-                                shape = CircleShape,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = artworkColors.secondary,
-                                    contentColor = contentColorFor(artworkColors.secondary)
-                                ),
-                                modifier = Modifier.size(68.dp),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(36.dp))
-                            }
-
-                            Surface(
-                                onClick = { onPlaySongs(album.songs.shuffled(), 0) },
-                                shape = squircleShape,
-                                color = Color.Transparent,
-                                border = BorderStroke(2.dp, artworkColors.secondary),
-                                modifier = Modifier.size(58.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle", tint = artworkColors.secondary, modifier = Modifier.size(26.dp))
-                                }
-                            }
+                        Box(modifier = Modifier.weight(1f).padding(vertical = 4.dp)) {
+                            SongItem(
+                                song = song,
+                                isPlaying = song.id == currentPlayingId,
+                                onClick = { onPlaySongs(album.songs, album.songs.indexOf(song)) },
+                                onDetailsClick = { onSongDetails(song) },
+                                onSwipePlayNext = { onSwipePlayNext(song) },
+                                onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) }
+                            )
                         }
                     }
                 }
             }
+        }
+
+        // Pill Banner that appears on scroll
+        AnimatedVisibility(
+            visible = showBanner,
+            enter = fadeIn() + slideInVertically { -it / 2 },
+            exit = fadeOut() + slideOutVertically { -it / 2 },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 16.dp)
+        ) {
+            PillBanner(
+                album = album,
+                artworkColors = artworkColors,
+                onBack = onBack
+            )
+        }
+    }
+}
+
+@Composable
+fun AlbumHeader(
+    album: Album,
+    artworkColors: ArtworkColors,
+    onBack: () -> Unit,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 16.dp)
+    ) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier.padding(bottom = 16.dp).offset(x = (-12).dp)
+        ) {
+            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ElevatedCard(
+                modifier = Modifier.size(130.dp),
+                shape = RoundedCornerShape(24.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 12.dp)
+            ) {
+                AsyncImage(
+                    model = album.artworkUri,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Spacer(modifier = Modifier.width(20.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = album.title,
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = (-1).sp,
+                        lineHeight = 32.sp
+                    ),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = album.artist,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = artworkColors.secondary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = onPlay,
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = artworkColors.secondary,
+                    contentColor = contentColorFor(artworkColors.secondary)
+                )
+            ) {
+                Icon(Icons.Rounded.PlayArrow, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Play All", fontWeight = FontWeight.ExtraBold)
+            }
+
+            FilledTonalButton(
+                onClick = onShuffle,
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Rounded.Shuffle, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Shuffle", fontWeight = FontWeight.ExtraBold)
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            thickness = 1.dp
+        )
+    }
+}
+
+@Composable
+fun PillBanner(
+    album: Album,
+    artworkColors: ArtworkColors,
+    onBack: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .height(48.dp)
+            .fillMaxWidth(),
+        shape = CircleShape, // Pill Shape
+        color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp).copy(alpha = 0.95f),
+        tonalElevation = 6.dp,
+        shadowElevation = 8.dp,
+        border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.2f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.ArrowBack, 
+                    contentDescription = "Back",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(4.dp))
+            
+            AsyncImage(
+                model = album.artworkUri,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
+            )
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Text(
+                text = album.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            
+            // Space for the Settings icon that lives in MainActivity
+            Spacer(modifier = Modifier.width(48.dp))
         }
     }
 }

@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,11 +41,17 @@ import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
 
+private data class QueueItem(
+    val indexInPlayer: Int,
+    val mediaItem: MediaItem,
+    val isPlayNext: Boolean,
+    val isFirstPlayNext: Boolean
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QueueContent(player: Player, artworkColors: ArtworkColors) {
     val haptic = LocalHapticFeedback.current
-    val density = LocalDensity.current
     
     var shuffleModeEnabled by remember { mutableStateOf(player.shuffleModeEnabled) }
     var repeatMode by remember { mutableIntStateOf(player.repeatMode) }
@@ -69,42 +74,62 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                 timeline = t
                 mediaItemCount = player.mediaItemCount
             }
-            override fun onPlaybackStateChanged(state: Int) {
-                mediaItemCount = player.mediaItemCount
-                currentIndex = player.currentMediaItemIndex
-            }
         }
         player.addListener(listener)
         onDispose { player.removeListener(listener) }
     }
 
-    val playbackOrder = remember(timeline, shuffleModeEnabled, mediaItemCount) {
-        val list = mutableListOf<Int>()
+    val queueItems = remember(timeline, shuffleModeEnabled, mediaItemCount) {
+        val list = mutableListOf<QueueItem>()
         if (!timeline.isEmpty && mediaItemCount > 0) {
             val firstIndex = timeline.getFirstWindowIndex(shuffleModeEnabled)
             var current = firstIndex
+            var lastWasPlayNext = false
             while (current != C.INDEX_UNSET) {
-                list.add(current)
+                if (current in 0 until player.mediaItemCount) {
+                    val item = player.getMediaItemAt(current)
+                    val isPlayNext = item.mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false
+                    list.add(
+                        QueueItem(
+                            indexInPlayer = current,
+                            mediaItem = item,
+                            isPlayNext = isPlayNext,
+                            isFirstPlayNext = isPlayNext && !lastWasPlayNext
+                        )
+                    )
+                    lastWasPlayNext = isPlayNext
+                }
                 current = timeline.getNextWindowIndex(current, Player.REPEAT_MODE_OFF, shuffleModeEnabled)
                 if (list.size >= mediaItemCount) break
             }
         } else if (mediaItemCount > 0) {
-            for (i in 0 until mediaItemCount) list.add(i)
+            for (i in 0 until mediaItemCount) {
+                val item = player.getMediaItemAt(i)
+                val isPlayNext = item.mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false
+                list.add(
+                    QueueItem(
+                        indexInPlayer = i,
+                        mediaItem = item,
+                        isPlayNext = isPlayNext,
+                        isFirstPlayNext = isPlayNext && (i == 0 || !(player.getMediaItemAt(i - 1).mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false))
+                    )
+                )
+            }
         }
         list
     }
 
     val listState = rememberLazyListState()
-    val isInfinite = repeatMode == Player.REPEAT_MODE_ALL && playbackOrder.isNotEmpty()
-    val totalDisplayCount = if (isInfinite) Int.MAX_VALUE else playbackOrder.size
+    val isInfinite = repeatMode == Player.REPEAT_MODE_ALL && queueItems.isNotEmpty()
+    val totalDisplayCount = if (isInfinite) Int.MAX_VALUE else queueItems.size
     
     LaunchedEffect(currentIndex, isInfinite) {
-        val basePos = playbackOrder.indexOf(currentIndex)
+        val basePos = queueItems.indexOfFirst { it.indexInPlayer == currentIndex }
         if (basePos >= 0) {
             if (isInfinite) {
                 val currentScrollIndex = listState.firstVisibleItemIndex
-                val cycle = currentScrollIndex / playbackOrder.size
-                val targetIndex = (cycle * playbackOrder.size) + basePos
+                val cycle = currentScrollIndex / queueItems.size
+                val targetIndex = (cycle * queueItems.size) + basePos
                 listState.scrollToItem(targetIndex)
             } else {
                 listState.animateScrollToItem(basePos)
@@ -117,7 +142,6 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
         
         LazyColumn(
             state = listState,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
             contentPadding = bottomPadding,
             modifier = Modifier
                 .fillMaxSize()
@@ -126,29 +150,27 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
             items(
                 count = totalDisplayCount,
                 key = { globalIndex -> 
-                    val size = playbackOrder.size
+                    val size = queueItems.size
                     if (size == 0) return@items "empty_$globalIndex"
                     val i = globalIndex % size
-                    val indexInPlayer = playbackOrder.getOrNull(i) ?: return@items "invalid_$globalIndex"
-                    val item = if (indexInPlayer in 0 until player.mediaItemCount) player.getMediaItemAt(indexInPlayer) else null
-                    "${item?.mediaId ?: "none"}_${globalIndex}"
+                    val qItem = queueItems.getOrNull(i) ?: return@items "invalid_$globalIndex"
+                    "${qItem.mediaItem.mediaId}_${globalIndex}"
                 }
             ) { globalIndex ->
-                val size = playbackOrder.size
+                val size = queueItems.size
                 if (size == 0) return@items
                 val i = globalIndex % size
-                val indexInPlayer = playbackOrder.getOrNull(i) ?: return@items
-                val item = if (indexInPlayer in 0 until player.mediaItemCount) player.getMediaItemAt(indexInPlayer) else return@items
-
-                val isCurrent = indexInPlayer == currentIndex
-                val isPlayNext = item.mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false
-
-                val prevItem = if (i > 0) {
-                    val prevIndex = playbackOrder.getOrNull(i - 1)
-                    if (prevIndex != null && prevIndex in 0 until player.mediaItemCount) player.getMediaItemAt(prevIndex) else null
-                } else null
+                val qItem = queueItems.getOrNull(i) ?: return@items
                 
-                val isFirstPlayNext = isPlayNext && (prevItem == null || !(prevItem.mediaMetadata.extras?.getBoolean("is_play_next", false) ?: false))
+                val item = qItem.mediaItem
+                val indexInPlayer = qItem.indexInPlayer
+                val isCurrent = indexInPlayer == currentIndex
+                val isPlayNext = qItem.isPlayNext
+                val isFirstPlayNext = qItem.isFirstPlayNext
+                val isLastPlayNext = remember(queueItems, i) {
+                    val nextItem = queueItems.getOrNull(i + 1)
+                    isPlayNext && (nextItem == null || !nextItem.isPlayNext)
+                }
 
                 if (isFirstPlayNext) {
                     Row(
@@ -174,22 +196,17 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                     }
                 }
 
-                val dismissState = rememberSwipeToDismissBoxState(
-                    confirmValueChange = { value ->
-                        if (value != SwipeToDismissBoxValue.Settled) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            // Safeguard removal: check if index is still valid
-                            if (indexInPlayer in 0 until player.mediaItemCount) {
-                                player.removeMediaItem(indexInPlayer)
-                            }
-                            true
-                        } else false
-                    },
-                    positionalThreshold = { totalDistance ->
-                        val threshold = with(density) { 100.dp.toPx() }
-                        maxOf(threshold, totalDistance * 0.25f)
+                val dismissState = rememberSwipeToDismissBoxState()
+                
+                if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+                    androidx.compose.runtime.LaunchedEffect(dismissState.currentValue) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (indexInPlayer in 0 until player.mediaItemCount) {
+                            player.removeMediaItem(indexInPlayer)
+                        }
+                        dismissState.snapTo(SwipeToDismissBoxValue.Settled)
                     }
-                )
+                }
 
                 SwipeToDismissBox(
                     state = dismissState,
@@ -237,7 +254,8 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = if (isPlayNext) 12.dp else 0.dp), // Indentation for sub-dir feel
+                            .height(IntrinsicSize.Min) // Important for fillMaxHeight to work
+                            .padding(start = if (isPlayNext) 24.dp else 0.dp), // Increased indentation for sub-dir feel
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (isPlayNext) {
@@ -245,11 +263,20 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                             Box(
                                 modifier = Modifier
                                     .width(3.dp)
-                                    .height(32.dp)
-                                    .clip(CircleShape)
-                                    .background(artworkColors.secondary.copy(alpha = 0.3f))
+                                    .fillMaxHeight()
+                                    .padding(
+                                        top = if (isFirstPlayNext) 8.dp else 0.dp,
+                                        bottom = if (isLastPlayNext) 8.dp else 0.dp
+                                    )
+                                    .clip(RoundedCornerShape(
+                                        topStart = if (isFirstPlayNext) 2.dp else 0.dp,
+                                        topEnd = if (isFirstPlayNext) 2.dp else 0.dp,
+                                        bottomStart = if (isLastPlayNext) 2.dp else 0.dp,
+                                        bottomEnd = if (isLastPlayNext) 2.dp else 0.dp
+                                    ))
+                                    .background(artworkColors.secondary.copy(alpha = 0.4f))
                             )
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(12.dp))
                         }
 
                         Surface(
@@ -320,9 +347,8 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
 
                 // Dividers
                 if (isCurrent && !isInfinite && i < size - 1) {
-                    val nextIndex = playbackOrder.getOrNull(i + 1)
-                    val nextItem = if (nextIndex != null && nextIndex in 0 until player.mediaItemCount) player.getMediaItemAt(nextIndex) else null
-                    val nextIsPlayNext = nextItem?.mediaMetadata?.extras?.getBoolean("is_play_next", false) ?: false
+                    val nextQItem = queueItems.getOrNull(i + 1)
+                    val nextIsPlayNext = nextQItem?.isPlayNext ?: false
                     if (!nextIsPlayNext) {
                         HorizontalDivider(
                             modifier = Modifier.padding(vertical = 12.dp, horizontal = 24.dp).animateItem(),

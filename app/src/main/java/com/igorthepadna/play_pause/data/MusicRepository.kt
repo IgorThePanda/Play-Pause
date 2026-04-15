@@ -9,18 +9,72 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.net.toUri
+import com.igorthepadna.play_pause.data.db.AlbumEntity
+import com.igorthepadna.play_pause.data.db.AppDatabase
+import com.igorthepadna.play_pause.data.db.ArtistEntity
+import com.igorthepadna.play_pause.data.db.PlaylistBackup
+import com.igorthepadna.play_pause.data.db.PlaylistEntity
+import com.igorthepadna.play_pause.data.db.PlaylistSongEntity
+import com.igorthepadna.play_pause.data.db.SongEntity
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
 class MusicRepository(private val context: Context) {
 
+    private val database = AppDatabase.getDatabase(context)
+    private val playlistDao = database.playlistDao()
+
     private var cachedSongs: List<Song>? = null
     private var cachedAlbums: List<Album>? = null
     private var cachedArtists: List<Artist>? = null
 
-    suspend fun getSongs(): List<Song> = withContext(Dispatchers.IO) {
+    private fun getMusicPaths(): List<String> {
+        val paths = mutableListOf<String>()
+        // Internal storage Music folder
+        paths.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC).absolutePath)
+        
+        // SD Card and other external storage volumes
+        val externalFilesDirs = context.getExternalFilesDirs(null)
+        for (file in externalFilesDirs) {
+            if (file != null) {
+                val path = file.absolutePath
+                if (path.contains("/Android/data/")) {
+                    val rootPath = path.substringBefore("/Android/data/")
+                    val musicPath = File(rootPath, Environment.DIRECTORY_MUSIC).absolutePath
+                    if (!paths.contains(musicPath)) {
+                        paths.add(musicPath)
+                    }
+                }
+            }
+        }
+        return paths
+    }
+
+    suspend fun getSongs(useCache: Boolean = true, onlyMusicFolder: Boolean = false): List<Song> = withContext(Dispatchers.IO) {
+        if (useCache) {
+            val cached = playlistDao.getAllCachedSongs()
+            if (cached.isNotEmpty()) {
+                val songs = cached.map { it.toDomain() }
+                // If we need to filter cache, we do it here
+                val filtered = if (onlyMusicFolder) {
+                    val musicPaths = getMusicPaths()
+                    songs.filter { song -> musicPaths.any { song.path.startsWith(it) } }
+                } else songs
+                
+                cachedSongs = filtered
+                return@withContext filtered
+            }
+        }
+
         val songList = mutableListOf<Song>()
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -39,17 +93,28 @@ class MusicRepository(private val context: Context) {
             MediaStore.Audio.Media.MIME_TYPE,
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.TRACK,
+            MediaStore.Audio.Media.DISC_NUMBER,
             MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.YEAR
         )
 
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+        var selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+        val selectionArgs = mutableListOf<String>()
+
+        if (onlyMusicFolder) {
+            val musicPaths = getMusicPaths()
+            if (musicPaths.isNotEmpty()) {
+                val pathSelection = musicPaths.joinToString(" OR ") { "${MediaStore.Audio.Media.DATA} LIKE ?" }
+                selection += " AND ($pathSelection)"
+                musicPaths.forEach { selectionArgs.add("$it%") }
+            }
+        }
 
         context.contentResolver.query(
             collection,
             projection,
             selection,
-            null,
+            if (selectionArgs.isEmpty()) null else selectionArgs.toTypedArray(),
             "${MediaStore.Audio.Media.TITLE} ASC"
         )?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -61,7 +126,8 @@ class MusicRepository(private val context: Context) {
             val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
             val dateAddedColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
-            val trackColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
+            val trackColumn = cursor.getColumnIndex(MediaStore.Audio.Media.TRACK)
+            val discColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DISC_NUMBER)
             val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val yearColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
 
@@ -75,7 +141,8 @@ class MusicRepository(private val context: Context) {
                 val size = cursor.getLong(sizeColumn)
                 val format = cursor.getString(mimeColumn) ?: ""
                 val dateAddedValue = cursor.getLong(dateAddedColumn)
-                val trackNumber = cursor.getInt(trackColumn)
+                val trackNumber = if (trackColumn != -1) cursor.getInt(trackColumn) else 0
+                val discNumber = if (discColumn != -1) cursor.getInt(discColumn) else 1
                 val albumId = cursor.getLong(albumIdColumn)
                 val year = cursor.getInt(yearColumn)
 
@@ -95,6 +162,7 @@ class MusicRepository(private val context: Context) {
                     format = format,
                     dateAdded = dateAddedValue,
                     trackNumber = trackNumber,
+                    discNumber = if (discNumber == 0) 1 else discNumber,
                     albumId = albumId,
                     year = year,
                     bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null,
@@ -104,55 +172,65 @@ class MusicRepository(private val context: Context) {
                 songList.add(song)
             }
         }
+        
+        // Background cache update
+        playlistDao.clearSongs()
+        playlistDao.insertSongs(songList.map { it.toEntity() })
+        
         cachedSongs = songList
         cachedAlbums = null
         cachedArtists = null
         songList
     }
 
-    suspend fun getLyrics(path: String): String? = withContext(Dispatchers.IO) {
-        if (path.isEmpty()) return@withContext null
-        val file = File(path)
-        if (!file.exists()) return@withContext null
+    private fun Song.toEntity() = SongEntity(
+        id = id, title = title, artist = artist, album = album, duration = duration,
+        uri = uri.toString(), albumArtUri = albumArtUri?.toString(), path = path,
+        size = size, format = format, dateAdded = dateAdded, trackNumber = trackNumber,
+        discNumber = discNumber, albumId = albumId, year = year
+    )
 
-        // 1. Check for companion .lrc file
-        val lrcFile = File(file.parent, "${file.nameWithoutExtension}.lrc")
-        if (lrcFile.exists()) {
-            try {
-                return@withContext lrcFile.readText()
-            } catch (e: Exception) {
-                // fallback to embedded
+    private fun SongEntity.toDomain() = Song(
+        id = id, title = title, artist = artist, album = album, duration = duration,
+        uri = Uri.parse(uri), albumArtUri = albumArtUri?.let { Uri.parse(it) }, path = path,
+        size = size, format = format, dateAdded = dateAdded, trackNumber = trackNumber,
+        discNumber = discNumber, albumId = albumId, year = year,
+        bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null
+    )
+
+    private fun Album.toEntity() = AlbumEntity(
+        id = id, title = title, artist = artist, artworkUri = artworkUri?.toString(),
+        year = year, hasFolderCover = hasFolderCover
+    )
+
+    private fun AlbumEntity.toDomain(songs: List<Song>) = Album(
+        id = id, title = title, artist = artist, artworkUri = artworkUri?.let { Uri.parse(it) },
+        songs = songs.filter { it.albumId == id }.sortedWith(compareBy({ it.discNumber }, { it.trackNumber })),
+        year = year, allCovers = songs.filter { it.albumId == id }.mapNotNull { it.albumArtUri }.distinct(),
+        hasFolderCover = hasFolderCover
+    )
+
+    private fun Artist.toEntity() = ArtistEntity(
+        name = name, albumCount = albumCount, trackCount = trackCount, thumbnailUri = thumbnailUri?.toString()
+    )
+
+    private fun ArtistEntity.toDomain(songs: List<Song>, albums: List<Album>) = Artist(
+        name = name, albums = albums.filter { it.artist == name },
+        songs = songs.filter { it.artist == name },
+        albumCount = albumCount, trackCount = trackCount,
+        thumbnailUri = thumbnailUri?.let { Uri.parse(it) }
+    )
+
+    suspend fun getAlbums(songs: List<Song>, useCache: Boolean = true): List<Album> = withContext(Dispatchers.IO) {
+        if (useCache) {
+            val cached = playlistDao.getAllCachedAlbums()
+            if (cached.isNotEmpty()) {
+                val albums = cached.map { it.toDomain(songs) }
+                cachedAlbums = albums
+                return@withContext albums
             }
         }
-
-        // 2. Check for embedded lyrics
-        val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSource(path)
-            // METADATA_KEY_LYRICS constant value is 23
-            return@withContext retriever.extractMetadata(23)
-        } catch (e: Exception) {
-            null
-        } finally {
-            try { retriever.release() } catch (e: Exception) {}
-        }
-    }
-
-    suspend fun getDetailedBitrate(path: String): String? = withContext(Dispatchers.IO) {
-        if (path.isEmpty()) return@withContext null
-        val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSource(path)
-            val br = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
-            if (br != null) "${br.toInt() / 1000} kbps" else null
-        } catch (e: Exception) {
-            null
-        } finally {
-            try { retriever.release() } catch (e: Exception) {}
-        }
-    }
-
-    suspend fun getAlbums(songs: List<Song>): List<Album> = withContext(Dispatchers.IO) {
+        
         if (cachedAlbums != null && songs === cachedSongs) return@withContext cachedAlbums!!
 
         val albums = songs.groupBy { it.albumId }.map { (albumId, albumSongs) ->
@@ -191,17 +269,30 @@ class MusicRepository(private val context: Context) {
                 title = firstSong.album,
                 artist = firstSong.artist,
                 artworkUri = albumArtworkUri,
-                songs = albumSongs.sortedBy { it.trackNumber },
+                songs = albumSongs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber })),
                 year = firstSong.year,
                 allCovers = albumSongs.mapNotNull { it.albumArtUri }.distinct(),
                 hasFolderCover = hasFolderCover
             )
         }
+        
+        playlistDao.clearAlbums()
+        playlistDao.insertAlbums(albums.map { it.toEntity() })
+        
         cachedAlbums = albums
         albums
     }
 
-    suspend fun getArtists(songs: List<Song>, albums: List<Album>): List<Artist> = withContext(Dispatchers.IO) {
+    suspend fun getArtists(songs: List<Song>, albums: List<Album>, useCache: Boolean = true): List<Artist> = withContext(Dispatchers.IO) {
+        if (useCache) {
+            val cached = playlistDao.getAllCachedArtists()
+            if (cached.isNotEmpty()) {
+                val artists = cached.map { it.toDomain(songs, albums) }
+                cachedArtists = artists
+                return@withContext artists
+            }
+        }
+        
         if (cachedArtists != null && songs === cachedSongs && albums === cachedAlbums) return@withContext cachedArtists!!
 
         val albumMap = albums.groupBy { it.artist }
@@ -220,6 +311,10 @@ class MusicRepository(private val context: Context) {
                 thumbnailUri = thumbnailUri
             )
         }
+        
+        playlistDao.clearArtists()
+        playlistDao.insertArtists(artists.map { it.toEntity() })
+
         cachedArtists = artists
         artists
     }
@@ -316,6 +411,163 @@ class MusicRepository(private val context: Context) {
 
         if (filesToScan.isNotEmpty()) {
             MediaScannerConnection.scanFile(context, filesToScan.toTypedArray(), null, null)
+        }
+    }
+
+    // Playlist Database Operations
+    fun getAllPlaylists(): Flow<List<Playlist>> {
+        return playlistDao.getAllPlaylists().map { entities ->
+            entities.map { entity ->
+                Playlist(
+                    id = entity.id,
+                    name = entity.name,
+                    isFavorite = entity.isFavorite,
+                    songs = emptyList() // We'll load songs separately when needed
+                )
+            }
+        }
+    }
+
+    suspend fun createPlaylist(name: String, id: String = java.util.UUID.randomUUID().toString(), isFavorite: Boolean = false) {
+        playlistDao.insertPlaylist(PlaylistEntity(id = id, name = name, isFavorite = isFavorite))
+    }
+
+    suspend fun deletePlaylist(playlistId: String) {
+        playlistDao.getPlaylistById(playlistId)?.let {
+            playlistDao.deletePlaylist(it)
+        }
+    }
+
+    suspend fun addSongToPlaylist(playlistId: String, songId: Long) {
+        playlistDao.addSongToPlaylist(playlistId, songId)
+    }
+
+    suspend fun removeSongFromPlaylist(playlistId: String, songId: Long) {
+        playlistDao.removeSongFromPlaylist(playlistId, songId)
+    }
+
+    fun getSongsForPlaylist(playlistId: String): Flow<List<Long>> {
+        return playlistDao.getSongsForPlaylist(playlistId).map { entities ->
+            entities.map { it.songId }
+        }
+    }
+
+    fun getPlaylistWithSongs(playlistId: String): Flow<Playlist?> {
+        return playlistDao.getPlaylistWithSongs(playlistId).map { playlistWithSongs ->
+            playlistWithSongs?.let {
+                val songs = it.songs.mapNotNull { ps ->
+                    cachedSongs?.find { s -> s.id == ps.songId }
+                }
+                Playlist(
+                    id = it.playlist.id,
+                    name = it.playlist.name,
+                    isFavorite = it.playlist.isFavorite,
+                    songs = songs.map { s -> s.id }
+                )
+            }
+        }
+    }
+
+    suspend fun exportPlaylists(outputStream: OutputStream) {
+        val playlists = playlistDao.getAllPlaylistsSync()
+        val songs = playlistDao.getAllPlaylistSongsSync()
+        val backup = PlaylistBackup(playlists, songs)
+        val json = Json.encodeToString(backup)
+        outputStream.use { it.write(json.toByteArray()) }
+    }
+
+    suspend fun importPlaylists(inputStream: InputStream) {
+        val jsonString = inputStream.bufferedReader().use { it.readText() }
+        try {
+            val backup = Json.decodeFromString<PlaylistBackup>(jsonString)
+            playlistDao.insertPlaylists(backup.playlists)
+            playlistDao.insertPlaylistSongs(backup.playlistSongs)
+        } catch (e: Exception) {
+            // If not JSON, try parsing as M3U
+            importFromM3U(jsonString)
+        }
+    }
+
+    suspend fun getLyrics(path: String): String? = withContext(Dispatchers.IO) {
+        // 1. Try to find external .lrc file first
+        val lrcFile = File(path.substringBeforeLast(".") + ".lrc")
+        if (lrcFile.exists()) {
+            try {
+                return@withContext lrcFile.readText()
+            } catch (e: Exception) {
+                // ignore and fall back
+            }
+        }
+
+        // 2. Fallback to embedded lyrics
+        try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(path)
+            // METADATA_KEY_LYRIC is 1000. It's not a public constant in all SDK versions.
+            val lyrics = retriever.extractMetadata(1000) 
+            retriever.release()
+            lyrics
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun getDetailedBitrate(path: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(path)
+            val bitrate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+            val sampleRate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)
+            } else {
+                null
+            }
+            val bitsPerSample = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)
+            } else {
+                null
+            }
+            retriever.release()
+
+            val kbps = bitrate?.toLongOrNull()?.let { it / 1000 }
+            val khz = sampleRate?.toDoubleOrNull()?.let { it / 1000.0 }
+            
+            buildString {
+                if (kbps != null) append("$kbps kbps")
+                if (khz != null) {
+                    if (isNotEmpty()) append(" • ")
+                    append(String.format(Locale.US, "%.1f kHz", khz))
+                }
+                if (bitsPerSample != null) {
+                    if (isNotEmpty()) append(" • ")
+                    append("$bitsPerSample-bit")
+                }
+            }.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private suspend fun importFromM3U(content: String) {
+        val lines = content.lines()
+        val playlistName = "Imported Playlist ${System.currentTimeMillis()}"
+        val playlistId = UUID.randomUUID().toString()
+        
+        createPlaylist(playlistId, playlistName)
+        
+        lines.forEach { line ->
+            if (line.isNotBlank() && !line.startsWith("#")) {
+                // Try to find song by path
+                // Samsung Music .m3u often uses relative paths or full paths
+                val song = cachedSongs?.find { 
+                    it.path == line || 
+                    it.path.endsWith(line.replace("/", File.separator)) ||
+                    it.path.contains(line.substringAfterLast("/")) 
+                }
+                if (song != null) {
+                    playlistDao.addSongToPlaylist(playlistId, song.id)
+                }
+            }
         }
     }
 }

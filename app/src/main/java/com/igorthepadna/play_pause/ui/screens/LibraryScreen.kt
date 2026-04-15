@@ -40,6 +40,9 @@ import com.igorthepadna.play_pause.ui.components.SongItem
 import com.igorthepadna.play_pause.ui.components.AlbumDetailView
 import com.igorthepadna.play_pause.ui.components.ArtistCard
 import com.igorthepadna.play_pause.ui.components.ArtistDetailView
+import com.igorthepadna.play_pause.ui.components.playlists.PlaylistView
+import com.igorthepadna.play_pause.ui.components.playlists.PlaylistDetailView
+import com.igorthepadna.play_pause.data.Playlist
 import com.igorthepadna.play_pause.utils.verticalScrollbar
 import com.igorthepadna.play_pause.utils.ScrollbarLabel
 
@@ -62,30 +65,47 @@ fun LibraryScreen(
     val filteredSongs by viewModel?.filteredSongs?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
     val sortedAlbums by viewModel?.sortedAlbums?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
     val sortedArtists by viewModel?.sortedArtists?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
+    val playlists by viewModel?.playlists?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
     
     // Read the current playing ID but don't perform the comparison here
     val currentPlayingId by viewModel?.currentPlayingId?.collectAsStateWithLifecycle(-1L) ?: remember { mutableLongStateOf(-1L) }
     
     val savedAlbumId by viewModel?.selectedAlbumId?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
     val savedArtistName by viewModel?.selectedArtistName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
+    val savedPlaylistId by viewModel?.selectedPlaylistId?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
 
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
 
     val selectedAlbum = remember(savedAlbumId, sortedAlbums) { sortedAlbums.find { it.id == savedAlbumId } }
     val selectedArtist = remember(savedArtistName, sortedArtists) { sortedArtists.find { it.name == savedArtistName } }
+    val selectedPlaylistWithMetadata by viewModel?.selectedPlaylist?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
+    
+    val selectedPlaylistSongs = remember(selectedPlaylistWithMetadata, filteredSongs) {
+        selectedPlaylistWithMetadata?.songs?.mapNotNull { songId ->
+            filteredSongs.find { it.id == songId }
+        } ?: emptyList()
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions -> onPermissionChanged(permissions.values.all { it }) }
 
-    BackHandler(enabled = selectedAlbum != null || selectedArtist != null) {
+    BackHandler(enabled = selectedAlbum != null || selectedArtist != null || savedPlaylistId != null) {
         if (selectedAlbum != null) viewModel?.setSelectedAlbumId(null)
         else if (selectedArtist != null) viewModel?.setSelectedArtistName(null)
+        else if (savedPlaylistId != null) viewModel?.setSelectedPlaylistId(null)
+    }
+
+    // Automatically close sub-menus when the navigation tab (filter) changes
+    LaunchedEffect(currentFilter) {
+        viewModel?.setSelectedAlbumId(null)
+        viewModel?.setSelectedArtistName(null)
+        viewModel?.setSelectedPlaylistId(null)
     }
 
     AnimatedContent(
-        targetState = selectedAlbum ?: selectedArtist,
+        targetState = selectedAlbum ?: selectedArtist ?: selectedPlaylistWithMetadata,
         transitionSpec = {
             if (targetState != null) {
                 (slideInHorizontally { width -> width } + fadeIn()).togetherWith(slideOutHorizontally { width -> -width / 2 } + fadeOut())
@@ -113,6 +133,19 @@ fun LibraryScreen(
                 onBack = { viewModel?.setSelectedArtistName(null) },
                 onAlbumClick = { viewModel?.setSelectedAlbumId(it.id) },
                 onPlayArtist = { onPlaySongs(detailItem.songs, 0) }
+            )
+            is Playlist -> PlaylistDetailView(
+                playlist = detailItem,
+                playlistSongs = selectedPlaylistSongs,
+                currentPlayingId = currentPlayingId,
+                onBack = { viewModel?.setSelectedPlaylistId(null) },
+                onPlaySongs = onPlaySongs,
+                onSongDetails = onSongDetails,
+                onSwipePlayNext = { song ->
+                    viewModel?.addPlayNext(song)
+                    onShowMessage("Added to Play Next: ${song.title}")
+                },
+                onSwipeAddToPlaylist = onAddToPlaylist
             )
             else -> Box(modifier = Modifier.fillMaxSize()) {
                 val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -194,6 +227,14 @@ fun LibraryScreen(
                                 }
                             )
                         }
+                        LibraryFilter.PLAYLISTS -> Box(modifier = Modifier.fillMaxSize()) {
+                            PlaylistView(
+                                playlists = playlists,
+                                onPlaylistClick = { playlist -> viewModel?.setSelectedPlaylistId(playlist.id) },
+                                onCreatePlaylist = { viewModel?.createPlaylist("New Playlist") },
+                                contentPadding = contentPadding
+                            )
+                        }
                         else -> Box(modifier = Modifier.fillMaxSize()) {
                             LazyColumn(
                                 state = listState,
@@ -263,45 +304,6 @@ fun LibraryScreen(
                         )
                 )
 
-                Column(modifier = Modifier.fillMaxWidth().padding(top = listTopPadding)) {
-                    AnimatedVisibility(
-                        visible = isRefreshing,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = RoundedCornerShape(24.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 3.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(Modifier.width(16.dp))
-                                Column {
-                                    Text(
-                                        "Updating Library",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        "Scanning for new music...",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }

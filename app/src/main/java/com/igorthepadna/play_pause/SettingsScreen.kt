@@ -1,5 +1,7 @@
 package com.igorthepadna.play_pause
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -18,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -137,6 +140,43 @@ fun MainSettingsContent(
                     subtitle = "Search local folders for artist images",
                     icon = Icons.Rounded.Image,
                     onClick = { viewModel.loadSongs(refresh = false) }
+                )
+            }
+
+            SettingsSection(title = "Backup & Restore") {
+                val context = LocalContext.current
+                val exportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.CreateDocument("application/json")
+                ) { uri ->
+                    uri?.let {
+                        context.contentResolver.openOutputStream(it)?.let { os ->
+                            viewModel.exportPlaylists(os)
+                        }
+                    }
+                }
+
+                val importLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        context.contentResolver.openInputStream(it)?.let { isStream ->
+                            viewModel.importPlaylists(isStream)
+                        }
+                    }
+                }
+
+                SettingsActionItem(
+                    title = "Export Playlists",
+                    subtitle = "Save playlists to a JSON file",
+                    icon = Icons.Rounded.Upload,
+                    onClick = { exportLauncher.launch("play_pause_playlists.json") }
+                )
+
+                SettingsActionItem(
+                    title = "Import Playlists",
+                    subtitle = "Restore playlists from JSON or M3U file",
+                    icon = Icons.Rounded.Download,
+                    onClick = { importLauncher.launch(arrayOf("application/json", "audio/mpegurl", "audio/x-mpegurl", "application/octet-stream")) }
                 )
             }
 

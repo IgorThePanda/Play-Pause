@@ -2,12 +2,12 @@ package com.igorthepadna.play_pause.data
 
 import android.net.Uri
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -39,6 +39,7 @@ data class Song(
     val format: String,
     val dateAdded: Long,
     val trackNumber: Int,
+    val discNumber: Int = 1,
     val albumId: Long,
     val genre: String? = null,
     val bitrate: String? = null,
@@ -82,7 +83,7 @@ enum class LibraryFilter(val label: String, val icon: ImageVector) {
     SONGS("Songs", Icons.Rounded.MusicNote),
     ARTISTS("Artists", Icons.Rounded.Person),
     GENRES("Genres", Icons.Rounded.GraphicEq),
-    PLAYLISTS("Playlists", Icons.Rounded.PlaylistPlay),
+    PLAYLISTS("Playlists", Icons.AutoMirrored.Rounded.PlaylistPlay),
     FILE_SYSTEM("Files", Icons.Rounded.Folder)
 }
 

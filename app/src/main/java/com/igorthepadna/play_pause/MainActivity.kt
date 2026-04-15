@@ -27,9 +27,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -213,6 +213,19 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         hasPermission = permissions.values.all { it }
+    }
+    
+    // Silence warning for unused launcher
+    LaunchedEffect(hasPermission) {
+        if (!hasPermission) {
+            permissionLauncher.launch(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_IMAGES)
+                } else {
+                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
+            )
+        }
     }
 
     DisposableEffect(player) {
@@ -409,17 +422,61 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .statusBarsPadding()
-                            .padding(16.dp),
+                            .padding(top = 20.dp, end = 24.dp), // Shifted down (20dp) and left (24dp) to align with the scroll-pill
                         horizontalArrangement = Arrangement.End
                     ) {
                         FilledIconButton(
                             onClick = { isSettingsVisible = true },
+                            modifier = Modifier.size(40.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
                             )
                         ) {
-                            Icon(Icons.Rounded.Settings, contentDescription = "Settings")
+                            Icon(Icons.Rounded.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp))
                         }
+                    }
+                }
+            }
+        }
+
+        // Persistent "Updating Library" notification at the very top
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(top = 16.dp),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            AnimatedVisibility(
+                visible = isRefreshing,
+                enter = slideInVertically { -it * 2 } + fadeIn(tween(500)),
+                exit = slideOutVertically { -it * 2 } + fadeOut(tween(500))
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .wrapContentWidth()
+                        .height(48.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    tonalElevation = 6.dp,
+                    shadowElevation = 12.dp,
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        LoadingIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            "Updating Library",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
