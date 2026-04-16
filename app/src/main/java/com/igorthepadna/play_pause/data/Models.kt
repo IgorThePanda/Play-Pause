@@ -40,6 +40,7 @@ data class Song(
     val dateAdded: Long,
     val trackNumber: Int,
     val discNumber: Int = 1,
+    val albumArtist: String? = null,
     val albumId: Long,
     val genre: String? = null,
     val bitrate: String? = null,

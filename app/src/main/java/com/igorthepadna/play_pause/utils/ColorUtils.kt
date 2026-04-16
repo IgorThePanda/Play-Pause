@@ -10,7 +10,6 @@ import androidx.palette.graphics.Palette
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
-import coil.size.Size
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -37,7 +36,7 @@ fun rememberArtworkColors(artworkUri: Uri?, defaultPrimary: Color, defaultSecond
             val request = ImageRequest.Builder(context)
                 .data(artworkUri)
                 .allowHardware(false) 
-                .size(100, 100) // Optimization: Decode a small version for palette extraction
+                .size(120, 120) 
                 .build()
 
             val result = loader.execute(request)
@@ -45,30 +44,50 @@ fun rememberArtworkColors(artworkUri: Uri?, defaultPrimary: Color, defaultSecond
                 val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
                 if (bitmap != null) {
                     val palette = Palette.from(bitmap)
-                        .maximumColorCount(12) // Optimization: Fewer colors to process
+                        .maximumColorCount(32) 
                         .generate()
                     
-                    val primaryInt = palette.getDarkMutedColor(
-                        palette.getMutedColor(
-                            palette.getDominantColor(defaultPrimary.toArgb())
-                        )
-                    )
+                    val swatches = palette.swatches.sortedByDescending { it.population }
                     
-                    val secondaryInt = palette.getLightVibrantColor(
-                        palette.getVibrantColor(
-                            palette.getDominantColor(defaultSecondary.toArgb())
-                        )
-                    )
+                    // Primary extraction (background tint)
+                    val primaryInt = palette.getDarkMutedSwatch()?.rgb
+                        ?: palette.getMutedSwatch()?.rgb
+                        ?: palette.getDominantSwatch()?.rgb
+                        ?: defaultPrimary.toArgb()
 
-                    val hsv = FloatArray(3)
-                    android.graphics.Color.colorToHSV(secondaryInt, hsv)
-                    val saturation = hsv[1]
+                    // Accent extraction
+                    val accentSwatch = palette.getVibrantSwatch()
+                        ?: palette.getLightVibrantSwatch()
+                        ?: palette.getDarkVibrantSwatch()
+                        ?: swatches.firstOrNull { it.hsl[1] >= 0.15f }
+                        ?: palette.getDominantSwatch()
 
-                    colors = if (saturation < 0.15f) {
-                        ArtworkColors(defaultPrimary, defaultSecondary)
+                    val baseSecondary = accentSwatch?.rgb ?: defaultSecondary.toArgb()
+                    
+                    val hsl = FloatArray(3)
+                    androidx.core.graphics.ColorUtils.colorToHSL(baseSecondary, hsl)
+
+                    // No hard fallback to theme color for grayscale.
+                    // Instead, we allow the extracted gray but normalize it for UI visibility.
+                    // This keeps the B&W "feel" without shifting to random colors like Red.
+                    
+                    // 1. Force saturation to 0 if it's very low to kill "random red" shifts
+                    if (hsl[1] < 0.12f) {
+                        hsl[1] = 0f 
                     } else {
-                        ArtworkColors(Color(primaryInt), Color(secondaryInt))
+                        // 2. If it is colorful, ensure it's punchy enough
+                        hsl[1] = hsl[1].coerceIn(0.45f, 0.9f)
                     }
+
+                    // 3. Ensure it's not too dark or too bright for text/pills
+                    hsl[2] = hsl[2].coerceIn(0.5f, 0.65f)
+                    
+                    val finalSecondary = Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
+
+                    colors = ArtworkColors(
+                        primary = Color(primaryInt),
+                        secondary = finalSecondary
+                    )
                 }
             }
         }

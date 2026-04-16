@@ -128,14 +128,30 @@ private fun parseLrc(lrcContent: String?): List<LyricLine> {
             val lineTimestamp = (min * 60 * 1000) + (sec * 1000) + lineMs
             var content = match.groupValues[4].trim()
             
-            // Handle speaker tag [speaker:Name]
+            // Handle speaker tags: [speaker:Name], v1:, v2:, M:, F:
             var speaker: String? = null
+            
+            // 1. Standard [speaker:Name] tag
             val speakerTagRegex = Regex("\\[speaker:(.*?)\\]")
             speakerTagRegex.find(content)?.let { sMatch ->
                 speaker = sMatch.groupValues[1]
                 content = content.replace(sMatch.value, "").trim()
             }
             
+            // 2. Shorthand prefix tags like v1:, v2:, M:, F:
+            val shorthandRegex = Regex("^(v\\d+|[MF]):\\s*", RegexOption.IGNORE_CASE)
+            shorthandRegex.find(content)?.let { sMatch ->
+                val code = sMatch.groupValues[1].lowercase()
+                speaker = when {
+                    code.startsWith("v") -> "Vocals ${code.substring(1)}"
+                    code == "m" -> "Male"
+                    code == "f" -> "Female"
+                    else -> code.uppercase()
+                }
+                content = content.replace(sMatch.value, "").trim()
+            }
+            
+            // 3. Fallback: Name followed by colon (e.g., "John: Hello")
             if (speaker == null && content.contains(": ")) {
                 val potentialSpeaker = content.substringBefore(": ")
                 if (potentialSpeaker.length < 20 && !potentialSpeaker.contains("<")) {
@@ -145,13 +161,14 @@ private fun parseLrc(lrcContent: String?): List<LyricLine> {
             }
 
             val words = mutableListOf<LyricWord>()
+            val rawWords = mutableListOf<LyricWord>()
             val wordMatches = wordTimeRegex.findAll(content).toList()
             val plainTexts = content.split(wordTimeRegex)
             
             if (wordMatches.isNotEmpty()) {
-                val initialText = plainTexts.getOrNull(0)?.trim() ?: ""
+                val initialText = plainTexts.getOrNull(0) ?: ""
                 if (initialText.isNotEmpty()) {
-                    words.add(LyricWord(lineTimestamp, initialText))
+                    rawWords.add(LyricWord(lineTimestamp, initialText))
                 }
                 
                 wordMatches.forEachIndexed { index, wMatch ->
@@ -168,11 +185,37 @@ private fun parseLrc(lrcContent: String?): List<LyricLine> {
                         }
                     }
                     val wTimestamp = (wMin * 60 * 1000) + (wSec * 1000) + wMs
-                    val wordText = plainTexts.getOrNull(index + 1)?.trim() ?: ""
+                    val wordText = plainTexts.getOrNull(index + 1) ?: ""
                     if (wordText.isNotEmpty()) {
-                        words.add(LyricWord(wTimestamp, wordText))
+                        rawWords.add(LyricWord(wTimestamp, wordText))
                     }
                 }
+
+                // Process rawWords to merge syllables into words
+                var currentWordText = ""
+                var currentWordTimestamp = -1L
+
+                rawWords.forEach { lyricWord ->
+                    if (currentWordTimestamp == -1L) {
+                        currentWordTimestamp = lyricWord.timestamp
+                    }
+                    
+                    val text = lyricWord.text
+                    currentWordText += text
+                    
+                    // If the text ends with a space or the next word starts with a space, 
+                    // or if it's just a complete word, we finish the current word.
+                    if (text.endsWith(" ") || text.endsWith("-")) {
+                        words.add(LyricWord(currentWordTimestamp, currentWordText.trim()))
+                        currentWordText = ""
+                        currentWordTimestamp = -1L
+                    }
+                }
+                
+                if (currentWordText.isNotEmpty()) {
+                    words.add(LyricWord(currentWordTimestamp, currentWordText.trim()))
+                }
+
                 content = words.joinToString(" ") { it.text }
             }
 

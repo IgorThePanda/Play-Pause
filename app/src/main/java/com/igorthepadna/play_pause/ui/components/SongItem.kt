@@ -42,7 +42,7 @@ import com.igorthepadna.play_pause.utils.ArtworkColors
 @Composable
 fun SongItem(
     song: Song,
-    isPlaying: Boolean, // Optimization: Boolean is stable, Long state change triggers mass recomposition
+    isPlaying: Boolean,
     onClick: () -> Unit,
     onDetailsClick: () -> Unit,
     onSwipePlayNext: () -> Unit,
@@ -51,12 +51,13 @@ fun SongItem(
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
 
-    if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
-        androidx.compose.runtime.LaunchedEffect(dismissState.currentValue) {
+    // Trigger actions and snap back
+    LaunchedEffect(dismissState.currentValue) {
+        if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
             when (dismissState.currentValue) {
                 SwipeToDismissBoxValue.StartToEnd -> onSwipePlayNext()
                 SwipeToDismissBoxValue.EndToStart -> onSwipeAddToPlaylist()
-                else -> {}
+                SwipeToDismissBoxValue.Settled -> {}
             }
             dismissState.snapTo(SwipeToDismissBoxValue.Settled)
         }
@@ -66,39 +67,38 @@ fun SongItem(
         state = dismissState,
         backgroundContent = {
             val direction = dismissState.dismissDirection
-            val color by animateColorAsState(
-                when (dismissState.targetValue) {
-                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
-                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.secondary
-                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                }, label = "swipe_bg"
-            )
+            val progress = dismissState.progress
+            val isSwiping = dismissState.targetValue != SwipeToDismissBoxValue.Settled
             
-            val icon = when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> Icons.AutoMirrored.Rounded.PlaylistPlay
-                SwipeToDismissBoxValue.EndToStart -> Icons.AutoMirrored.Rounded.PlaylistAdd
-                else -> null
-            }
+            if (isSwiping && direction != null) {
+                val color by animateColorAsState(
+                    when (dismissState.targetValue) {
+                        SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
+                        SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.secondary
+                        else -> Color.Transparent
+                    }, label = "swipe_bg"
+                )
+                
+                val icon = when (direction) {
+                    SwipeToDismissBoxValue.StartToEnd -> Icons.AutoMirrored.Rounded.PlaylistPlay
+                    SwipeToDismissBoxValue.EndToStart -> Icons.AutoMirrored.Rounded.PlaylistAdd
+                    SwipeToDismissBoxValue.Settled -> Icons.AutoMirrored.Rounded.PlaylistPlay
+                }
 
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(color)
-                    .padding(horizontal = 24.dp),
-                contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            ) {
-                if (icon != null) {
-                    val scale by animateFloatAsState(
-                        if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) 1.4f else 1f,
-                        label = "icon_scale"
-                    )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(color.copy(alpha = progress))
+                        .padding(horizontal = 24.dp),
+                    contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+                ) {
                     Icon(
                         icon,
                         contentDescription = null,
-                        modifier = Modifier.scale(scale),
-                        tint = Color.White
+                        modifier = Modifier.scale(progress.coerceIn(0.7f, 1.3f)),
+                        tint = Color.White.copy(alpha = progress)
                     )
                 }
             }
@@ -177,6 +177,172 @@ fun SongItem(
                         Icons.Default.MoreVert, 
                         contentDescription = "Details",
                         tint = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CompactSongItem(
+    song: Song,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    onDetailsClick: () -> Unit,
+    onSwipePlayNext: () -> Unit,
+    onSwipeAddToPlaylist: () -> Unit,
+    modifier: Modifier = Modifier,
+    showArtist: Boolean = true,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp)
+) {
+    val dismissState = rememberSwipeToDismissBoxState()
+
+    LaunchedEffect(dismissState.currentValue) {
+        if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+            when (dismissState.currentValue) {
+                SwipeToDismissBoxValue.StartToEnd -> onSwipePlayNext()
+                SwipeToDismissBoxValue.EndToStart -> onSwipeAddToPlaylist()
+                SwipeToDismissBoxValue.Settled -> {}
+            }
+            dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+        }
+    }
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            val direction = dismissState.dismissDirection
+            val progress = dismissState.progress
+            val isSwiping = dismissState.targetValue != SwipeToDismissBoxValue.Settled
+            
+            if (isSwiping && direction != null) {
+                val color by animateColorAsState(
+                    when (dismissState.targetValue) {
+                        SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
+                        SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.secondary
+                        else -> Color.Transparent
+                    }, label = "compact_swipe_bg"
+                )
+
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .clip(shape)
+                        .background(color.copy(alpha = progress))
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+                ) {
+                    val icon = if (direction == SwipeToDismissBoxValue.StartToEnd)
+                        Icons.AutoMirrored.Rounded.PlaylistPlay
+                    else Icons.AutoMirrored.Rounded.PlaylistAdd
+                    
+                    Icon(
+                        icon, 
+                        null, 
+                        tint = Color.White.copy(alpha = progress), 
+                        modifier = Modifier.size(20.dp).scale(progress.coerceIn(0.8f, 1.2f))
+                    )
+                }
+            }
+        },
+        modifier = modifier
+    ) {
+        val backgroundColor by animateColorAsState(
+            targetValue = if (isPlaying) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            label = "compact_song_bg"
+        )
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (showArtist && !isPlaying) 58.dp else 52.dp)
+                .clickable { onClick() },
+            shape = shape,
+            color = backgroundColor
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Track Number Pill
+                if (song.trackNumber > 0) {
+                    Surface(
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(width = 30.dp, height = 20.dp),
+                        shape = CircleShape,
+                        color = if (isPlaying) 
+                            MaterialTheme.colorScheme.primary 
+                        else 
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = song.trackNumber.toString(),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    letterSpacing = (-0.5).sp
+                                ),
+                                color = if (isPlaying) 
+                                    MaterialTheme.colorScheme.onPrimary 
+                                else 
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = song.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (isPlaying) FontWeight.ExtraBold else FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+                    )
+                    if (isPlaying) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Now Playing",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (showArtist) {
+                                Text(
+                                    text = " • ${song.artist}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    } else if (showArtist) {
+                        Text(
+                            text = song.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                IconButton(onClick = onDetailsClick, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        Icons.Default.MoreVert, 
+                        contentDescription = "Details",
+                        modifier = Modifier.size(20.dp),
+                        tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

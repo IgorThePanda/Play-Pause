@@ -141,6 +141,7 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
     val playlistSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showDetailsSheet by remember { mutableStateOf(false) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
+    var showSortSheet by remember { mutableStateOf(false) }
 
     // Colors for the current song (used in sheets)
     val detailsArtworkColors = rememberArtworkColors(
@@ -155,17 +156,24 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
         defaultSecondary = MaterialTheme.colorScheme.primary
     )
 
-    // Fix: BackHandler for settings
-    BackHandler(enabled = isSettingsVisible || showDetailsSheet || showPlaylistSheet) {
-        if (isSettingsVisible) isSettingsVisible = false
-        else if (showDetailsSheet) showDetailsSheet = false
-        else if (showPlaylistSheet) showPlaylistSheet = false
+    // Fix: BackHandler for settings and other UI states
+    BackHandler(enabled = true) {
+        if (isSettingsVisible) {
+            isSettingsVisible = false
+        } else if (showDetailsSheet) {
+            showDetailsSheet = false
+        } else if (showPlaylistSheet) {
+            showPlaylistSheet = false
+        } else if (showSortSheet) {
+            showSortSheet = false
+        } else if (isPlayerFullScreenState) {
+            viewModel.setPlayerFullScreen(false)
+        }
     }
 
     // Sort logic
     val tabSortSettingsMap by viewModel.tabSortSettings.collectAsStateWithLifecycle()
     val currentTabSettings = tabSortSettingsMap[currentFilter] ?: TabSortSettings()
-    var showSortSheet by remember { mutableStateOf(false) }
 
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     

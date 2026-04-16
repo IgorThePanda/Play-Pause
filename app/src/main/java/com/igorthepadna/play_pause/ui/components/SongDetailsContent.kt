@@ -34,6 +34,7 @@ fun SongDetailsContent(
 ) {
     var genre by remember { mutableStateOf("Loading...") }
     var bitrate by remember { mutableStateOf("Loading...") }
+    var lyricType by remember { mutableStateOf("Checking...") }
 
     LaunchedEffect(song.path) {
         withContext(Dispatchers.IO) {
@@ -48,6 +49,41 @@ fun SongDetailsContent(
                 bitrate = "Unknown"
             } finally {
                 retriever.release()
+            }
+
+            // Lyric detection logic
+            val lrcFile = java.io.File(song.path.substringBeforeLast(".") + ".lrc")
+            var rawLyrics: String? = null
+            var source = ""
+
+            if (lrcFile.exists()) {
+                source = "LRC File"
+                rawLyrics = try { lrcFile.readText() } catch (e: Exception) { null }
+            }
+
+            if (rawLyrics == null) {
+                val lyrRetriever = MediaMetadataRetriever()
+                try {
+                    lyrRetriever.setDataSource(song.path)
+                    rawLyrics = lyrRetriever.extractMetadata(1000)
+                    if (rawLyrics != null) source = "Embedded"
+                } catch (_: Exception) {
+                } finally {
+                    lyrRetriever.release()
+                }
+            }
+
+            lyricType = if (rawLyrics != null) {
+                val hasWordSync = rawLyrics.contains(Regex("<\\d{1,2}:\\d{1,2}"))
+                val hasLineSync = rawLyrics.contains(Regex("\\[\\d{1,2}:\\d{1,2}"))
+                
+                when {
+                    hasWordSync -> "$source (Word-synced)"
+                    hasLineSync -> "$source (Verse-synced)"
+                    else -> "$source (Plain text)"
+                }
+            } else {
+                "None found"
             }
         }
     }
@@ -110,13 +146,15 @@ fun SongDetailsContent(
         )
 
         // Custom wrap layout using standard Compose features
-        val details = listOf(
+        val details = listOfNotNull(
             Icons.Rounded.Album to song.album,
             Icons.Rounded.MusicNote to genre,
             Icons.Rounded.Timer to formatDuration(song.duration),
             Icons.Rounded.GraphicEq to bitrate,
             Icons.Rounded.FormatShapes to song.format.substringAfter("/"),
+            Icons.Rounded.Lyrics to lyricType,
             Icons.Rounded.Numbers to "Track ${if (song.trackNumber > 0) song.trackNumber else "N/A"}",
+            if (song.discNumber > 0) Icons.Rounded.Album to "Disc ${song.discNumber}" else null,
             Icons.Rounded.SdStorage to String.format(Locale.getDefault(), "%.2f MB", song.size / (1024f * 1024f))
         )
 

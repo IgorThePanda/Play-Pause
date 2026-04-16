@@ -1,6 +1,7 @@
 package com.igorthepadna.play_pause.ui.components
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -21,14 +22,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.Artist
+import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
 
@@ -47,84 +49,164 @@ fun ArtistDetailView(
         defaultSecondary = MaterialTheme.colorScheme.primary
     )
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { },
-                navigationIcon = {
-                    FilledIconButton(
-                        onClick = onBack,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-                        )
-                    ) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
+    val bannerThresholdPx = with(LocalDensity.current) { 200.dp.toPx() }
+    val showBanner by remember {
+        derivedStateOf {
+            gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > bannerThresholdPx
         }
-    ) { padding ->
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        // Background Gradient
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(artworkColors.primary.copy(alpha = 0.3f), MaterialTheme.colorScheme.surface)
+                    )
+                )
+        )
+
         val bottomPadding = PaddingValues(
-            top = padding.calculateTopPadding() + 24.dp,
+            top = 16.dp, 
             start = 16.dp,
             end = 16.dp,
             bottom = 140.dp
         )
-        
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Background Gradient
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(artworkColors.primary.copy(alpha = 0.3f), MaterialTheme.colorScheme.surface)
-                        )
-                    )
-            )
 
-            LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Fixed(2),
-                contentPadding = bottomPadding,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScrollbar(gridState, padding = bottomPadding)
-            ) {
-                // Header item
-                item(span = { GridItemSpan(2) }) {
-                    ArtistHeader(artist, onPlayArtist)
-                }
-
-                item(span = { GridItemSpan(2) }) {
-                    Text(
-                        text = "Albums",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                    )
-                }
-
-                items(artist.albums) { album ->
-                    AlbumCard(
-                        album = album,
-                        onClick = { onAlbumClick(album) }
-                    )
-                }
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Fixed(2),
+            contentPadding = bottomPadding,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .verticalScrollbar(gridState, padding = bottomPadding)
+        ) {
+            // Header item
+            item(span = { GridItemSpan(2) }) {
+                ArtistHeader(artist, onBack, onPlayArtist)
             }
+
+            item(span = { GridItemSpan(2) }) {
+                Text(
+                    text = "Albums",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                )
+            }
+
+            items(artist.albums) { album ->
+                AlbumCard(
+                    album = album,
+                    onClick = { onAlbumClick(album) }
+                )
+            }
+        }
+
+        // Pill Banner that appears on scroll
+        AnimatedVisibility(
+            visible = showBanner,
+            enter = fadeIn() + slideInVertically { -it / 2 },
+            exit = fadeOut() + slideOutVertically { -it / 2 },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 16.dp) // Adjusted to 16dp to center-align with 40dp Settings icon
+        ) {
+            ArtistPillBanner(
+                artist = artist,
+                artworkColors = artworkColors,
+                onBack = onBack
+            )
         }
     }
 }
 
 @Composable
-private fun ArtistHeader(artist: Artist, onPlayArtist: () -> Unit) {
+fun ArtistPillBanner(
+    artist: Artist,
+    artworkColors: ArtworkColors,
+    onBack: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .padding(horizontal = 16.dp) // Standardized horizontal padding
+            .height(48.dp)
+            .fillMaxWidth(),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp).copy(alpha = 0.95f),
+        tonalElevation = 6.dp,
+        shadowElevation = 8.dp,
+        border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.2f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.ArrowBack, 
+                    contentDescription = "Back",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(4.dp))
+            
+            val model = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri
+            AsyncImage(
+                model = model,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Text(
+                text = artist.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            
+            Spacer(modifier = Modifier.width(48.dp))
+        }
+    }
+}
+
+@Composable
+private fun ArtistHeader(artist: Artist, onBack: () -> Unit, onPlayArtist: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.offset(x = (-12).dp)
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         Surface(
             modifier = Modifier
                 .size(200.dp)

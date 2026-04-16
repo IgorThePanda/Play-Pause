@@ -94,6 +94,7 @@ class MusicRepository(private val context: Context) {
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.DISC_NUMBER,
+            "album_artist",
             MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.YEAR
         )
@@ -128,6 +129,7 @@ class MusicRepository(private val context: Context) {
             val dateAddedColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
             val trackColumn = cursor.getColumnIndex(MediaStore.Audio.Media.TRACK)
             val discColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DISC_NUMBER)
+            val albumArtistColumn = cursor.getColumnIndex("album_artist")
             val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val yearColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
 
@@ -141,8 +143,36 @@ class MusicRepository(private val context: Context) {
                 val size = cursor.getLong(sizeColumn)
                 val format = cursor.getString(mimeColumn) ?: ""
                 val dateAddedValue = cursor.getLong(dateAddedColumn)
-                val trackNumber = if (trackColumn != -1) cursor.getInt(trackColumn) else 0
-                val discNumber = if (discColumn != -1) cursor.getInt(discColumn) else 1
+                var trackNumber = if (trackColumn != -1) cursor.getInt(trackColumn) else 0
+                var discNumber = if (discColumn != -1) cursor.getInt(discColumn) else 1
+                val albumArtist = if (albumArtistColumn != -1) cursor.getString(albumArtistColumn) else null
+                
+                // Handle compound track numbers (e.g., 2001 -> Disk 2, Track 1)
+                if (trackNumber >= 1000) {
+                    val inferredDisc = trackNumber / 1000
+                    val inferredTrack = trackNumber % 1000
+                    
+                    // If MediaStore didn't provide a disc number (it's 0 or 1), use the inferred one
+                    if (discNumber <= 1 && inferredDisc > 1) {
+                        discNumber = inferredDisc
+                    }
+                    trackNumber = inferredTrack
+                } else if (trackNumber >= 100) {
+                    // Some older systems use 101, 102 for Disc 1, Track 1, 2 etc.
+                    // But we should be careful here as albums can have 100+ songs.
+                    // Usually, if it's 1xx and we have no disc info, it's 3-digit encoding.
+                    if (discNumber <= 1) {
+                         val inferredDisc = trackNumber / 100
+                         val inferredTrack = trackNumber % 100
+                         // Only apply if inferred track is reasonable (e.g., 101 -> D1, T1)
+                         // If it's something like 550, it's probably just a high track number.
+                         if (inferredDisc in 1..9) {
+                             discNumber = inferredDisc
+                             trackNumber = inferredTrack
+                         }
+                    }
+                }
+
                 val albumId = cursor.getLong(albumIdColumn)
                 val year = cursor.getInt(yearColumn)
 
@@ -163,6 +193,7 @@ class MusicRepository(private val context: Context) {
                     dateAdded = dateAddedValue,
                     trackNumber = trackNumber,
                     discNumber = if (discNumber == 0) 1 else discNumber,
+                    albumArtist = albumArtist,
                     albumId = albumId,
                     year = year,
                     bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null,
@@ -187,16 +218,24 @@ class MusicRepository(private val context: Context) {
         id = id, title = title, artist = artist, album = album, duration = duration,
         uri = uri.toString(), albumArtUri = albumArtUri?.toString(), path = path,
         size = size, format = format, dateAdded = dateAdded, trackNumber = trackNumber,
-        discNumber = discNumber, albumId = albumId, year = year
+        discNumber = discNumber, albumArtist = albumArtist, albumId = albumId, year = year
     )
 
-    private fun SongEntity.toDomain() = Song(
-        id = id, title = title, artist = artist, album = album, duration = duration,
-        uri = Uri.parse(uri), albumArtUri = albumArtUri?.let { Uri.parse(it) }, path = path,
-        size = size, format = format, dateAdded = dateAdded, trackNumber = trackNumber,
-        discNumber = discNumber, albumId = albumId, year = year,
-        bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null
-    )
+    private fun SongEntity.toDomain(): Song {
+        val cleanTrackNumber = when {
+            trackNumber >= 1000 -> trackNumber % 1000
+            trackNumber >= 100 && discNumber <= 1 && (trackNumber / 100) in 1..9 -> trackNumber % 100
+            else -> trackNumber
+        }
+        
+        return Song(
+            id = id, title = title, artist = artist, album = album, duration = duration,
+            uri = Uri.parse(uri), albumArtUri = albumArtUri?.let { Uri.parse(it) }, path = path,
+            size = size, format = format, dateAdded = dateAdded, trackNumber = cleanTrackNumber,
+            discNumber = discNumber, albumArtist = albumArtist, albumId = albumId, year = year,
+            bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null
+        )
+    }
 
     private fun Album.toEntity() = AlbumEntity(
         id = id, title = title, artist = artist, artworkUri = artworkUri?.toString(),
@@ -267,7 +306,7 @@ class MusicRepository(private val context: Context) {
             Album(
                 id = albumId,
                 title = firstSong.album,
-                artist = firstSong.artist,
+                artist = firstSong.albumArtist ?: firstSong.artist,
                 artworkUri = albumArtworkUri,
                 songs = albumSongs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber })),
                 year = firstSong.year,

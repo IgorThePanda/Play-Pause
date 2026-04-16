@@ -15,6 +15,12 @@ import com.igorthepadna.play_pause.data.Playlist
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.data.SortOrder
 import com.igorthepadna.play_pause.data.SortType
+import android.provider.MediaStore
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -139,6 +145,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     )
     val tabSortSettings = _tabSortSettings.asStateFlow()
+
+    private val mediaStoreObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        private var debounceJob: Job? = null
+        override fun onChange(selfChange: Boolean) {
+            debounceJob?.cancel()
+            debounceJob = viewModelScope.launch {
+                delay(2000) // Wait for multiple changes to settle
+                loadSongs(fromMediaStore = true)
+            }
+        }
+    }
+
+    init {
+        application.contentResolver.registerContentObserver(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            true,
+            mediaStoreObserver
+        )
+    }
 
     // Highly Optimized Flows
     val filteredSongs = combine(_songs, debouncedSearchQuery, _tabSortSettings) { allSongs, query, settings ->
@@ -284,7 +309,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun loadSongs(refresh: Boolean = false) {
+    fun loadSongs(refresh: Boolean = false, fromMediaStore: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             val onlyMusic = _scanOnlyMusicFolder.value
             
@@ -294,13 +319,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             // 1. Fetch data (either from cache or by scanning MediaStore)
-            val songs = repository.getSongs(useCache = !refresh, onlyMusicFolder = onlyMusic)
+            val useCache = !refresh && !fromMediaStore
+            val songs = repository.getSongs(useCache = useCache, onlyMusicFolder = onlyMusic)
             _songs.value = songs
             
-            val albums = repository.getAlbums(songs, useCache = !refresh)
+            val albums = repository.getAlbums(songs, useCache = useCache)
             _allAlbums.value = albums
             
-            val artists = repository.getArtists(songs, albums, useCache = !refresh)
+            val artists = repository.getArtists(songs, albums, useCache = useCache)
             _allArtists.value = artists
 
             if (refresh) {
@@ -434,6 +460,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .setExtras(extras)
                     .build()
             )
+            .setRequestMetadata(
+                MediaItem.RequestMetadata.Builder()
+                    .setExtras(extras)
+                    .build()
+            )
             .build()
     }
 
@@ -447,6 +478,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        getApplication<Application>().contentResolver.unregisterContentObserver(mediaStoreObserver)
         _player.value?.removeListener(playerListener)
     }
 

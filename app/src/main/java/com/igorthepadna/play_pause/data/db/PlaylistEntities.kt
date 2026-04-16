@@ -30,6 +30,7 @@ data class SongEntity(
     val dateAdded: Long,
     val trackNumber: Int,
     val discNumber: Int,
+    val albumArtist: String?,
     val albumId: Long,
     val year: Int
 )

@@ -108,25 +108,42 @@ fun AlbumDetailView(
             album.songs.groupBy { it.discNumber }.forEach { (discNumber, discSongs) ->
                 if (hasMultipleDiscs) {
                     item(key = "disc_$discNumber") {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 16.dp, top = 20.dp, bottom = 4.dp)
-                                .animateItem(),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(start = 8.dp, top = 24.dp)
                         ) {
-                            Icon(
-                                Icons.Rounded.Album,
-                                contentDescription = null,
-                                tint = artworkColors.secondary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = "DISK $discNumber",
-                                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp),
-                                fontWeight = FontWeight.Black,
-                                color = artworkColors.secondary
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.Album,
+                                        contentDescription = null,
+                                        tint = artworkColors.secondary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = "DISC $discNumber",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        letterSpacing = 2.sp,
+                                        fontSize = 10.sp
+                                    ),
+                                    fontWeight = FontWeight.Black,
+                                    color = artworkColors.secondary
+                                )
+                            }
+                            // Bridge line to the first item
+                            Box(
+                                modifier = Modifier
+                                    .padding(start = 11.dp)
+                                    .width(2.dp)
+                                    .height(8.dp)
+                                    .background(artworkColors.secondary.copy(alpha = 0.25f))
                             )
                         }
                     }
@@ -140,42 +157,42 @@ fun AlbumDetailView(
                     val isFirst = discSongs.firstOrNull()?.id == song.id
                     val isLast = discSongs.lastOrNull()?.id == song.id
                     
+                    val shape = when {
+                        isFirst && isLast -> RoundedCornerShape(12.dp)
+                        isFirst -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                        isLast -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+                        else -> RoundedCornerShape(0.dp)
+                    }
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(IntrinsicSize.Min) // Important for fillMaxHeight to work
-                            .padding(start = if (hasMultipleDiscs) 24.dp else 16.dp, end = 16.dp),
+                            .height(IntrinsicSize.Min)
+                            .padding(start = if (hasMultipleDiscs) 8.dp else 16.dp, end = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (hasMultipleDiscs) {
-                            // Vertical accent line for the disc group - Matching Queue style
+                            // Vertical accent line - Seamless connection
                             Box(
                                 modifier = Modifier
-                                    .width(3.dp)
+                                    .padding(start = 11.dp)
+                                    .width(2.dp)
                                     .fillMaxHeight()
-                                    .padding(
-                                        top = if (isFirst) 8.dp else 0.dp,
-                                        bottom = if (isLast) 8.dp else 0.dp
-                                    )
-                                    .clip(RoundedCornerShape(
-                                        topStart = if (isFirst) 2.dp else 0.dp,
-                                        topEnd = if (isFirst) 2.dp else 0.dp,
-                                        bottomStart = if (isLast) 2.dp else 0.dp,
-                                        bottomEnd = if (isLast) 2.dp else 0.dp
-                                    ))
-                                    .background(artworkColors.secondary.copy(alpha = 0.4f))
+                                    .background(artworkColors.secondary.copy(alpha = 0.25f))
                             )
                             Spacer(Modifier.width(12.dp))
                         }
                         
-                        Box(modifier = Modifier.weight(1f).padding(vertical = 4.dp)) {
-                            SongItem(
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactSongItem(
                                 song = song,
                                 isPlaying = song.id == currentPlayingId,
                                 onClick = { onPlaySongs(album.songs, album.songs.indexOf(song)) },
                                 onDetailsClick = { onSongDetails(song) },
                                 onSwipePlayNext = { onSwipePlayNext(song) },
-                                onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) }
+                                onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                                showArtist = song.artist != album.artist,
+                                shape = shape
                             )
                         }
                     }
