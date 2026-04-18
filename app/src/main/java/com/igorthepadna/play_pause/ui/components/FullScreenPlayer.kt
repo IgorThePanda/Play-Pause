@@ -336,6 +336,8 @@ fun FullScreenPlayer(
     onDragStopped: (Float) -> Unit,
     onMoreClick: (Song) -> Unit,
     onAddClick: (Song) -> Unit,
+    onNavigateToAlbum: (Long) -> Unit,
+    onNavigateToArtist: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -645,7 +647,10 @@ fun FullScreenPlayer(
                         fontWeight = FontWeight.Black,
                         maxLines = 1,
                         lineHeight = 42.sp,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable {
+                            currentSong?.albumId?.let { onNavigateToAlbum(it) }
+                        }
                     )
                     Text(
                         text = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist",
@@ -654,7 +659,10 @@ fun FullScreenPlayer(
                             fontWeight = FontWeight.Bold
                         ),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable {
+                            currentMediaItem?.mediaMetadata?.artist?.toString()?.let { onNavigateToArtist(it) }
+                        }
                     )
                 }
 
@@ -685,6 +693,8 @@ fun FullScreenPlayer(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        var showRemainingTime by remember { mutableStateOf(false) }
+
                         Text(
                             text = formatDuration(currentPosition),
                             style = MaterialTheme.typography.labelMedium,
@@ -725,10 +735,11 @@ fun FullScreenPlayer(
                         }
 
                         Text(
-                            text = formatDuration(duration),
+                            text = if (showRemainingTime) "-${formatDuration(duration - currentPosition)}" else formatDuration(duration),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable { showRemainingTime = !showRemainingTime }
                         )
                     }
                 }

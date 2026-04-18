@@ -30,6 +30,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import java.io.InputStream
 import java.io.OutputStream
 
+import com.igorthepadna.play_pause.ui.components.CategoryViewMode
+
 enum class ThemeMode {
     LIGHT, DARK, AUTO
 }
@@ -42,6 +44,11 @@ data class TabSortSettings(
     val sortType: SortType = SortType.TITLE,
     val sortOrder: SortOrder = SortOrder.ASC,
     val showOnlyAlbumArtists: Boolean = false
+)
+
+data class ViewModeSettings(
+    val viewMode: CategoryViewMode = CategoryViewMode.DETAILED,
+    val columns: Int = 2
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -82,7 +89,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Debounced search query
     private val debouncedSearchQuery = _searchQuery
-        .debounce(300L)
+        .debounce(20L) // Even more aggressive for truly "instant" feedback
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
@@ -126,7 +133,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val currentFilter = _currentFilter.asStateFlow()
 
-    private val _isPlayerFullScreen = MutableStateFlow(prefs.getBoolean("player_full_screen", false))
+    private val _isPlayerFullScreen = MutableStateFlow(false)
     val isPlayerFullScreen = _isPlayerFullScreen.asStateFlow()
 
     // Per-tab Sort Settings
@@ -145,6 +152,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     )
     val tabSortSettings = _tabSortSettings.asStateFlow()
+
+    private val _viewModeSettings = MutableStateFlow<Map<String, ViewModeSettings>>(
+        prefs.all.filterKeys { it.startsWith("view_mode_") }.mapValues { entry ->
+            val value = entry.value as String
+            val parts = value.split("|")
+            ViewModeSettings(
+                viewMode = runCatching { CategoryViewMode.valueOf(parts[0]) }.getOrDefault(CategoryViewMode.DETAILED),
+                columns = parts.getOrNull(1)?.toIntOrNull() ?: 2
+            )
+        }.mapKeys { it.key.removePrefix("view_mode_") }
+    )
+    val viewModeSettings = _viewModeSettings.asStateFlow()
 
     private val mediaStoreObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         private var debounceJob: Job? = null
@@ -168,8 +187,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Highly Optimized Flows
     val filteredSongs = combine(_songs, debouncedSearchQuery, _tabSortSettings) { allSongs, query, settings ->
         val currentSettings = settings[LibraryFilter.SONGS] ?: TabSortSettings()
-        var list = if (query.isBlank()) allSongs 
-        else allSongs.filter { it.title.contains(query, true) || it.artist.contains(query, true) }
+        
+        // Fast path for empty query
+        if (query.isBlank()) {
+            return@combine when (currentSettings.sortType) {
+                SortType.TITLE -> if (currentSettings.sortOrder == SortOrder.ASC) allSongs.sortedBy { it.title } else allSongs.sortedByDescending { it.title }
+                SortType.ARTIST -> if (currentSettings.sortOrder == SortOrder.ASC) allSongs.sortedBy { it.artist } else allSongs.sortedByDescending { it.artist }
+                SortType.RELEASE_DATE -> if (currentSettings.sortOrder == SortOrder.ASC) allSongs.sortedBy { it.year } else allSongs.sortedByDescending { it.year }
+                else -> allSongs
+            }
+        }
+
+        // Optimized filtering: check title first as it's more likely to match
+        val list = allSongs.filter { 
+            it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true) 
+        }
         
         when (currentSettings.sortType) {
             SortType.TITLE -> if (currentSettings.sortOrder == SortOrder.ASC) list.sortedBy { it.title } else list.sortedByDescending { it.title }
@@ -181,8 +213,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val sortedAlbums = combine(_allAlbums, debouncedSearchQuery, _tabSortSettings) { albums, query, settings ->
         val currentSettings = settings[LibraryFilter.ALBUMS] ?: TabSortSettings()
-        var list = if (query.isBlank()) albums 
-        else albums.filter { it.title.contains(query, true) || it.artist.contains(query, true) }
+        
+        // Fast path for empty query
+        if (query.isBlank()) {
+            return@combine when (currentSettings.sortType) {
+                SortType.TITLE -> if (currentSettings.sortOrder == SortOrder.ASC) albums.sortedBy { it.title } else albums.sortedByDescending { it.title }
+                SortType.ARTIST -> if (currentSettings.sortOrder == SortOrder.ASC) albums.sortedBy { it.artist } else albums.sortedByDescending { it.artist }
+                SortType.RELEASE_DATE -> if (currentSettings.sortOrder == SortOrder.ASC) albums.sortedBy { it.year } else albums.sortedByDescending { it.year }
+                else -> albums
+            }
+        }
+
+        val list = albums.filter { 
+            it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true) 
+        }
         
         when (currentSettings.sortType) {
             SortType.TITLE -> if (currentSettings.sortOrder == SortOrder.ASC) list.sortedBy { it.title } else list.sortedByDescending { it.title }
@@ -194,10 +238,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val sortedArtists = combine(_allArtists, debouncedSearchQuery, _tabSortSettings) { artists, query, settings ->
         val currentSettings = settings[LibraryFilter.ARTISTS] ?: TabSortSettings()
+        
         var list = if (query.isBlank()) artists else artists.filter { it.name.contains(query, true) }
         
         if (currentSettings.showOnlyAlbumArtists) {
             list = list.filter { it.albumCount > 1 || (it.albumCount == 1 && it.songs.size > 2) }
+        }
+
+        if (query.isBlank() && !currentSettings.showOnlyAlbumArtists) {
+             return@combine when (currentSettings.sortType) {
+                SortType.TITLE -> if (currentSettings.sortOrder == SortOrder.ASC) artists.sortedBy { it.name } else artists.sortedByDescending { it.name }
+                SortType.ALBUM_COUNT -> if (currentSettings.sortOrder == SortOrder.ASC) artists.sortedBy { it.albumCount } else artists.sortedByDescending { it.albumCount }
+                SortType.TRACK_COUNT -> if (currentSettings.sortOrder == SortOrder.ASC) artists.sortedBy { it.trackCount } else artists.sortedByDescending { it.trackCount }
+                else -> artists
+            }
         }
 
         when (currentSettings.sortType) {
@@ -218,6 +272,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedPlaylistId = MutableStateFlow<String?>(null)
     val selectedPlaylistId = _selectedPlaylistId.asStateFlow()
 
+    private val _selectedGenreName = MutableStateFlow<String?>(null)
+    val selectedGenreName = _selectedGenreName.asStateFlow()
+
     val selectedAlbum = combine(_selectedAlbumId, sortedAlbums) { id, albums ->
         albums.find { it.id == id }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -225,6 +282,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedArtist = combine(_selectedArtistName, sortedArtists) { name, artists ->
         artists.find { it.name == name }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val selectedGenreSongs = combine(_selectedGenreName, _songs) { name, songs ->
+        if (name == null) emptyList()
+        else songs.filter { it.genre == name }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val selectedPlaylist = _selectedPlaylistId.flatMapLatest { id ->
@@ -246,6 +308,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSelectedPlaylistId(id: String?) {
         _selectedPlaylistId.value = id
+    }
+
+    fun setSelectedGenreName(name: String?) {
+        _selectedGenreName.value = name
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -300,13 +366,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPlayerFullScreen(full: Boolean) {
         _isPlayerFullScreen.value = full
-        prefs.edit().putBoolean("player_full_screen", full).apply()
     }
 
     fun updateSortSettings(filter: LibraryFilter, settings: TabSortSettings) {
         _tabSortSettings.value = _tabSortSettings.value.toMutableMap().apply {
             put(filter, settings)
         }
+    }
+
+    fun updateViewModeSettings(key: String, settings: ViewModeSettings) {
+        _viewModeSettings.value = _viewModeSettings.value.toMutableMap().apply {
+            put(key, settings)
+        }
+        prefs.edit().putString("view_mode_$key", "${settings.viewMode.name}|${settings.columns}").apply()
     }
 
     fun loadSongs(refresh: Boolean = false, fromMediaStore: Boolean = false) {

@@ -246,7 +246,7 @@ fun AlbumHeader(
         ) {
             ElevatedCard(
                 modifier = Modifier.size(130.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(28.dp),
                 elevation = CardDefaults.elevatedCardElevation(defaultElevation = 12.dp)
             ) {
                 AsyncImage(
@@ -288,7 +288,7 @@ fun AlbumHeader(
             Button(
                 onClick = onPlay,
                 modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(24.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = artworkColors.secondary,
                     contentColor = contentColorFor(artworkColors.secondary)
@@ -302,7 +302,7 @@ fun AlbumHeader(
             FilledTonalButton(
                 onClick = onShuffle,
                 modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(24.dp)
             ) {
                 Icon(Icons.Rounded.Shuffle, null)
                 Spacer(Modifier.width(8.dp))

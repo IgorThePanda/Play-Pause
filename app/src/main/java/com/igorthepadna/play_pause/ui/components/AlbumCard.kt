@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -22,6 +23,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,7 +38,9 @@ import com.igorthepadna.play_pause.utils.rememberArtworkColors
 fun AlbumCard(
     album: Album,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    onPlayClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    columns: Int = 2
 ) {
     val artworkColors = rememberArtworkColors(
         artworkUri = album.artworkUri,
@@ -44,20 +48,32 @@ fun AlbumCard(
         defaultSecondary = MaterialTheme.colorScheme.primary
     )
 
-    val commonRounding = 16.dp // Matching rounding for artwork and metadata pill
+    val showDetails = columns <= 2
+    val showMetadata = columns < 4
+    val showArtist = columns <= 2
+    val showTitle = columns <= 3
+
+    val rounding = when {
+        columns <= 1 -> 24.dp
+        columns == 2 -> 16.dp
+        columns == 3 -> 12.dp
+        else -> 8.dp
+    }
+
+    val commonRounding = rounding // Use dynamic rounding
 
     // Outer container
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        tonalElevation = 1.dp
+        shape = RoundedCornerShape(if (showMetadata) 28.dp else rounding),
+        color = if (showMetadata) MaterialTheme.colorScheme.surfaceContainerLowest else Color.Transparent,
+        tonalElevation = if (showMetadata) 1.dp else 0.dp
     ) {
         Column(
-            modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(if (showDetails) 10.dp else if (showMetadata) 6.dp else 0.dp),
+            verticalArrangement = Arrangement.spacedBy(if (showDetails) 10.dp else 6.dp)
         ) {
             // 1. Artwork Section
             Box(
@@ -67,7 +83,7 @@ fun AlbumCard(
             ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    shape = RoundedCornerShape(commonRounding),
+                    shape = RoundedCornerShape(rounding),
                     tonalElevation = 0.dp
                 ) {
                     val showGrid = !album.hasFolderCover && album.allCovers.size > 1
@@ -97,123 +113,179 @@ fun AlbumCard(
                     }
                 }
 
-                // Blurred Accent Pill for Song Count
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 12.dp)
-                        .height(30.dp)
-                        .clip(CircleShape)
-                        .background(artworkColors.secondary.copy(alpha = 0.4f)) // Semi-transparent accent
-                        .blur(16.dp) // Blur effect
-                )
+                if (showDetails) {
+                    val isLightMode = MaterialTheme.colorScheme.surface.toArgb().let { colorInt ->
+                        val hsl = FloatArray(3)
+                        androidx.core.graphics.ColorUtils.colorToHSL(colorInt, hsl)
+                        hsl[2] > 0.5f
+                    }
 
-                // Actual content container (to keep icons/text sharp)
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 12.dp)
-                        .height(30.dp),
-                    shape = CircleShape,
-                    color = artworkColors.secondary.copy(alpha = 0.7f), // Higher opacity for contrast
-                    contentColor = Color.White
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    // Use artwork secondary color as accent
+                    val accentColor = artworkColors.secondary
+                    
+                    val overlayBgColor = if (isLightMode) {
+                        accentColor.copy(alpha = 0.4f)
+                    } else {
+                        accentColor.copy(alpha = 0.7f)
+                    }
+
+                    val contentColor = if (isLightMode) {
+                        // Ensure contrast in light mode
+                        val hsl = FloatArray(3)
+                        androidx.core.graphics.ColorUtils.colorToHSL(accentColor.toArgb(), hsl)
+                        if (hsl[2] > 0.6f) Color.Black else Color.White
+                    } else {
+                        Color.White
+                    }
+
+                    // 1. Song Count Pill
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(10.dp)
+                            .height(30.dp)
+                            .clip(CircleShape)
                     ) {
-                        val pillTextColor = remember(artworkColors.secondary) {
-                            val hsl = FloatArray(3)
-                            androidx.core.graphics.ColorUtils.colorToHSL(artworkColors.secondary.toArgb(), hsl)
-                            if (hsl[2] > 0.6f) Color.Black else Color.White
+                        // Real Blur: Blurred artwork background
+                        AlbumCoverImage(
+                            album.artworkUri,
+                            size = 100,
+                            modifier = Modifier
+                                .matchParentSize()
+                                .blur(20.dp)
+                        )
+                        // Themed tint overlay
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(overlayBgColor)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .fillMaxHeight(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = contentColor
+                            )
+                            Text(
+                                text = album.songs.size.toString(),
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 12.sp,
+                                    color = contentColor
+                                ),
+                                modifier = Modifier.clearAndSetSemantics { }
+                            )
                         }
+                    }
 
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = pillTextColor
-                        )
-                        Text(
-                            text = album.songs.size.toString(),
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 12.sp
-                            ),
-                            color = pillTextColor
-                        )
+                    // 2. Quick Play Button
+                    if (onPlayClick != null) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(10.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .clickable(onClick = onPlayClick)
+                        ) {
+                            // Real Blur: Blurred artwork background
+                            AlbumCoverImage(
+                                album.artworkUri,
+                                size = 100,
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .blur(20.dp)
+                            )
+                            // Themed tint overlay
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .background(overlayBgColor)
+                            )
+                            Icon(
+                                imageVector = Icons.Rounded.PlayArrow,
+                                contentDescription = "Play Album ${album.title}",
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .align(Alignment.Center),
+                                tint = contentColor
+                            )
+                        }
                     }
                 }
             }
 
             // 2. Metadata Segment
             // Use a slightly darker/more opaque background to ensure contrast in light mode
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(commonRounding),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            if (showMetadata) {
+                Surface(
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                    shape = RoundedCornerShape(commonRounding),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Vertical accent bar
-                    Box(
-                        modifier = Modifier
-                            .width(4.dp)
-                            .height(28.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(artworkColors.secondary)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = if (showDetails) 12.dp else 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Removed Vertical accent bar per request
 
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        // Advanced Contrast Logic
-                        val isLightMode = MaterialTheme.colorScheme.surface.toArgb().let {
-                            val hsl = FloatArray(3)
-                            androidx.core.graphics.ColorUtils.colorToHSL(it, hsl)
-                            hsl[2] > 0.5f
-                        }
-
-                        val titleColor = remember(artworkColors.secondary, isLightMode) {
-                            val hsl = FloatArray(3)
-                            androidx.core.graphics.ColorUtils.colorToHSL(artworkColors.secondary.toArgb(), hsl)
-                            
-                            if (isLightMode) {
-                                // In light mode, ensure the color is dark enough
-                                if (hsl[2] > 0.4f) hsl[2] = 0.3f
-                                // Increase saturation for "pop"
-                                hsl[1] = (hsl[1] + 0.2f).coerceAtMost(1f)
-                            } else {
-                                // In dark mode, ensure it's light enough
-                                if (hsl[2] < 0.6f) hsl[2] = 0.8f
+                        Column(modifier = Modifier.weight(1f)) {
+                            // Advanced Contrast Logic
+                            val isLightMode = MaterialTheme.colorScheme.surface.toArgb().let {
+                                val hsl = FloatArray(3)
+                                androidx.core.graphics.ColorUtils.colorToHSL(it, hsl)
+                                hsl[2] > 0.5f
                             }
-                            Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
-                        }
 
-                        Text(
-                            text = album.title,
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = FontWeight.Black,
-                                fontSize = 14.sp,
-                                letterSpacing = (-0.2).sp
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = titleColor
-                        )
-                        Text(
-                            text = album.artist,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp
-                            ),
-                            color = if (isLightMode) Color.DarkGray else Color.LightGray,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                            val titleColor = remember(artworkColors.secondary, isLightMode) {
+                                val hsl = FloatArray(3)
+                                androidx.core.graphics.ColorUtils.colorToHSL(artworkColors.secondary.toArgb(), hsl)
+                                
+                                if (isLightMode) {
+                                    // In light mode, ensure the color is dark enough
+                                    if (hsl[2] > 0.4f) hsl[2] = 0.3f
+                                    // Increase saturation for "pop"
+                                    hsl[1] = (hsl[1] + 0.2f).coerceAtMost(1f)
+                                } else {
+                                    // In dark mode, ensure it's light enough
+                                    if (hsl[2] < 0.6f) hsl[2] = 0.8f
+                                }
+                                Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
+                            }
+
+                            if (showTitle) {
+                                Text(
+                                    text = album.title,
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 14.sp,
+                                        letterSpacing = (-0.2).sp
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = titleColor
+                                )
+                            }
+                            if (showArtist) {
+                                Text(
+                                    text = album.artist,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = if (isLightMode) Color.DarkGray else Color.LightGray
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -222,7 +294,7 @@ fun AlbumCard(
 }
 
 @Composable
-private fun AlbumCoverImage(model: Any?, size: Int = 400) {
+private fun AlbumCoverImage(model: Any?, size: Int = 400, modifier: Modifier = Modifier) {
     AsyncImage(
         model = ImageRequest.Builder(LocalContext.current)
             .data(model)
@@ -230,7 +302,7 @@ private fun AlbumCoverImage(model: Any?, size: Int = 400) {
             .size(size)
             .build(),
         contentDescription = null,
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         contentScale = ContentScale.Crop,
         error = painterResource(R.drawable.ic_launcher_foreground),
         placeholder = painterResource(R.drawable.ic_launcher_foreground)

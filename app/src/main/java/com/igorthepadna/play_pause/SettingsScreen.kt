@@ -1,5 +1,6 @@
 package com.igorthepadna.play_pause
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -39,6 +40,10 @@ fun MainSettingsScreen(
     onBack: () -> Unit
 ) {
     var currentTab by remember { mutableStateOf(SettingsTab.MAIN) }
+
+    BackHandler(enabled = currentTab != SettingsTab.MAIN) {
+        currentTab = SettingsTab.MAIN
+    }
 
     AnimatedContent(
         targetState = currentTab,

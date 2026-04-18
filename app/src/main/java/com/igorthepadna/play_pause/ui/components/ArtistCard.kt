@@ -29,8 +29,12 @@ import com.igorthepadna.play_pause.data.Artist
 fun ArtistCard(
     artist: Artist,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    columns: Int = 2
 ) {
+    val showMetadata = columns < 4
+    val showDetails = columns <= 2
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -40,7 +44,7 @@ fun ArtistCard(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = androidx.compose.material3.ripple()
             )
-            .padding(8.dp),
+            .padding(if (showMetadata) 8.dp else 0.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Surface(
@@ -75,26 +79,30 @@ fun ArtistCard(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = artist.name,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.Black,
-                letterSpacing = (-0.5).sp,
-                lineHeight = 20.sp
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
-        )
-        Text(
-            text = "${artist.albumCount} Albums • ${artist.trackCount} Songs",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
+        if (showMetadata) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = artist.name,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = (-0.5).sp,
+                    lineHeight = 20.sp
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+            )
+            if (showDetails) {
+                Text(
+                    text = "${artist.albumCount} Albums • ${artist.trackCount} Songs",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
     }
 }
 

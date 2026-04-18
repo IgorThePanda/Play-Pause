@@ -40,9 +40,17 @@ import com.igorthepadna.play_pause.ui.components.SongItem
 import com.igorthepadna.play_pause.ui.components.AlbumDetailView
 import com.igorthepadna.play_pause.ui.components.ArtistCard
 import com.igorthepadna.play_pause.ui.components.ArtistDetailView
+import com.igorthepadna.play_pause.ui.components.GenreDetailView
 import com.igorthepadna.play_pause.ui.components.playlists.PlaylistView
 import com.igorthepadna.play_pause.ui.components.playlists.PlaylistDetailView
 import com.igorthepadna.play_pause.data.Playlist
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.ui.unit.sp
+import com.igorthepadna.play_pause.ui.components.GenreCard
+import com.igorthepadna.play_pause.ui.components.CategoryViewMode
+import com.igorthepadna.play_pause.ViewModeSettings
+import com.igorthepadna.play_pause.ui.components.CompactSongItem
 import com.igorthepadna.play_pause.utils.verticalScrollbar
 import com.igorthepadna.play_pause.utils.ScrollbarLabel
 
@@ -59,7 +67,9 @@ fun LibraryScreen(
     onAddToPlaylist: (Song) -> Unit,
     viewModel: MainViewModel? = null,
     onShowMessage: (String) -> Unit = {},
-    tabSortSettings: TabSortSettings = TabSortSettings()
+    tabSortSettings: TabSortSettings = TabSortSettings(),
+    onSettingsClick: () -> Unit = {},
+    onSortClick: () -> Unit = {}
 ) {
     val searchQuery by viewModel?.searchQuery?.collectAsStateWithLifecycle() ?: remember { mutableStateOf("") }
     val filteredSongs by viewModel?.filteredSongs?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
@@ -73,6 +83,7 @@ fun LibraryScreen(
     val savedAlbumId by viewModel?.selectedAlbumId?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
     val savedArtistName by viewModel?.selectedArtistName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
     val savedPlaylistId by viewModel?.selectedPlaylistId?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
+    val savedGenreName by viewModel?.selectedGenreName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
 
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
@@ -87,14 +98,17 @@ fun LibraryScreen(
         } ?: emptyList()
     }
 
+    val selectedGenreSongs by viewModel?.selectedGenreSongs?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions -> onPermissionChanged(permissions.values.all { it }) }
 
-    BackHandler(enabled = selectedAlbum != null || selectedArtist != null || savedPlaylistId != null) {
+    BackHandler(enabled = selectedAlbum != null || selectedArtist != null || savedPlaylistId != null || savedGenreName != null) {
         if (selectedAlbum != null) viewModel?.setSelectedAlbumId(null)
         else if (selectedArtist != null) viewModel?.setSelectedArtistName(null)
         else if (savedPlaylistId != null) viewModel?.setSelectedPlaylistId(null)
+        else if (savedGenreName != null) viewModel?.setSelectedGenreName(null)
     }
 
     // Automatically close sub-menus when the navigation tab (filter) changes
@@ -102,10 +116,11 @@ fun LibraryScreen(
         viewModel?.setSelectedAlbumId(null)
         viewModel?.setSelectedArtistName(null)
         viewModel?.setSelectedPlaylistId(null)
+        viewModel?.setSelectedGenreName(null)
     }
 
     AnimatedContent(
-        targetState = selectedAlbum ?: selectedArtist ?: selectedPlaylistWithMetadata,
+        targetState = (selectedAlbum ?: selectedArtist ?: selectedPlaylistWithMetadata ?: savedGenreName),
         transitionSpec = {
             if (targetState != null) {
                 (slideInHorizontally { width -> width } + fadeIn()).togetherWith(slideOutHorizontally { width -> -width / 2 } + fadeOut())
@@ -132,7 +147,14 @@ fun LibraryScreen(
                 artist = detailItem,
                 onBack = { viewModel?.setSelectedArtistName(null) },
                 onAlbumClick = { viewModel?.setSelectedAlbumId(it.id) },
-                onPlayArtist = { onPlaySongs(detailItem.songs, 0) }
+                onPlayArtist = { onPlaySongs(detailItem.songs.shuffled(), 0) },
+                onSongClick = { song ->
+                    onPlaySongs(detailItem.songs, detailItem.songs.indexOf(song))
+                },
+                onSongDetailsClick = onSongDetails,
+                onPlayAllSongs = { onPlaySongs(detailItem.songs, 0) },
+                onPlaySpecificSongs = { songs -> onPlaySongs(songs, 0) },
+                viewModel = viewModel
             )
             is Playlist -> PlaylistDetailView(
                 playlist = detailItem,
@@ -145,7 +167,24 @@ fun LibraryScreen(
                     viewModel?.addPlayNext(song)
                     onShowMessage("Added to Play Next: ${song.title}")
                 },
-                onSwipeAddToPlaylist = onAddToPlaylist
+                onSwipeAddToPlaylist = onAddToPlaylist,
+                viewModel = viewModel
+            )
+            is String -> GenreDetailView(
+                genre = detailItem,
+                songs = selectedGenreSongs,
+                currentPlayingId = currentPlayingId,
+                onBack = { viewModel?.setSelectedGenreName(null) },
+                onSongClick = { song -> onPlaySongs(selectedGenreSongs, selectedGenreSongs.indexOf(song)) },
+                onSongDetailsClick = onSongDetails,
+                onPlayAllSongs = { onPlaySongs(selectedGenreSongs, 0) },
+                onShuffleSongs = { onPlaySongs(selectedGenreSongs.shuffled(), 0) },
+                onSwipePlayNext = { song ->
+                    viewModel?.addPlayNext(song)
+                    onShowMessage("Added to Play Next: ${song.title}")
+                },
+                onSwipeAddToPlaylist = onAddToPlaylist,
+                viewModel = viewModel
             )
             else -> Box(modifier = Modifier.fillMaxSize()) {
                 val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -172,9 +211,14 @@ fun LibraryScreen(
                 } else {
                     when (currentFilter) {
                         LibraryFilter.ALBUMS -> Box(modifier = Modifier.fillMaxSize()) {
+                            val categoryKey = "library_albums"
+                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
+                            val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
+                            val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
+
                             LazyVerticalGrid(
                                 state = gridState,
-                                columns = GridCells.Fixed(2),
+                                columns = GridCells.Fixed(effectiveColumns),
                                 contentPadding = contentPadding,
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -183,9 +227,41 @@ fun LibraryScreen(
                                 items(
                                     items = sortedAlbums, 
                                     key = { it.id },
-                                    contentType = { "album_card" } // Added contentType
+                                    contentType = { "album_card" }
                                 ) { album ->
-                                    AlbumCard(album = album, onClick = { viewModel?.setSelectedAlbumId(album.id) })
+                                    if (settings.viewMode == CategoryViewMode.GRID) {
+                                        AlbumCard(
+                                            album = album, 
+                                            onClick = { viewModel?.setSelectedAlbumId(album.id) },
+                                            onPlayClick = { onPlaySongs(album.songs, 0) },
+                                            columns = effectiveColumns
+                                        )
+                                    } else if (settings.viewMode == CategoryViewMode.COMPACT) {
+                                        CompactSongItem(
+                                            song = album.songs.first(),
+                                            isPlaying = false,
+                                            onClick = { viewModel?.setSelectedAlbumId(album.id) },
+                                            onDetailsClick = {},
+                                            onSwipePlayNext = {},
+                                            onSwipeAddToPlaylist = {},
+                                            label = album.title,
+                                            secondaryLabel = album.artist,
+                                            artworkUri = album.artworkUri,
+                                            onPlayClick = { onPlaySongs(album.songs, 0) }
+                                        )
+                                    } else {
+                                        SongItem(
+                                            song = album.songs.first(),
+                                            isPlaying = false,
+                                            onClick = { viewModel?.setSelectedAlbumId(album.id) },
+                                            onDetailsClick = {},
+                                            onSwipePlayNext = {},
+                                            onSwipeAddToPlaylist = {},
+                                            label = album.title,
+                                            secondaryLabel = album.artist,
+                                            artworkUri = album.artworkUri
+                                        )
+                                    }
                                 }
                             }
                             ScrollbarLabel(
@@ -202,9 +278,14 @@ fun LibraryScreen(
                             )
                         }
                         LibraryFilter.ARTISTS -> Box(modifier = Modifier.fillMaxSize()) {
+                            val categoryKey = "library_artists"
+                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
+                            val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
+                            val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
+
                             LazyVerticalGrid(
                                 state = gridState,
-                                columns = GridCells.Fixed(2),
+                                columns = GridCells.Fixed(effectiveColumns),
                                 contentPadding = contentPadding,
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -213,9 +294,39 @@ fun LibraryScreen(
                                 items(
                                     items = sortedArtists, 
                                     key = { it.name },
-                                    contentType = { "artist_card" } // Added contentType
+                                    contentType = { "artist_card" }
                                 ) { artist ->
-                                    ArtistCard(artist = artist, onClick = { viewModel?.setSelectedArtistName(artist.name) })
+                                    if (settings.viewMode == CategoryViewMode.GRID) {
+                                        ArtistCard(
+                                            artist = artist, 
+                                            onClick = { viewModel?.setSelectedArtistName(artist.name) },
+                                            columns = effectiveColumns
+                                        )
+                                    } else if (settings.viewMode == CategoryViewMode.COMPACT) {
+                                        CompactSongItem(
+                                            song = artist.songs.first(),
+                                            isPlaying = false,
+                                            onClick = { viewModel?.setSelectedArtistName(artist.name) },
+                                            onDetailsClick = {},
+                                            onSwipePlayNext = {},
+                                            onSwipeAddToPlaylist = {},
+                                            label = artist.name,
+                                            secondaryLabel = "${artist.albumCount} Albums • ${artist.trackCount} Songs",
+                                            artworkUri = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri
+                                        )
+                                    } else {
+                                        SongItem(
+                                            song = artist.songs.first(),
+                                            isPlaying = false,
+                                            onClick = { viewModel?.setSelectedArtistName(artist.name) },
+                                            onDetailsClick = {},
+                                            onSwipePlayNext = {},
+                                            onSwipeAddToPlaylist = {},
+                                            label = artist.name,
+                                            secondaryLabel = "${artist.albumCount} Albums • ${artist.trackCount} Songs",
+                                            artworkUri = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri
+                                        )
+                                    }
                                 }
                             }
                             ScrollbarLabel(
@@ -228,36 +339,177 @@ fun LibraryScreen(
                             )
                         }
                         LibraryFilter.PLAYLISTS -> Box(modifier = Modifier.fillMaxSize()) {
-                            PlaylistView(
-                                playlists = playlists,
-                                onPlaylistClick = { playlist -> viewModel?.setSelectedPlaylistId(playlist.id) },
-                                onCreatePlaylist = { viewModel?.createPlaylist("New Playlist") },
-                                contentPadding = contentPadding
-                            )
+                            val categoryKey = "library_playlists"
+                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
+                            val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
+                            val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
+
+                            LazyVerticalGrid(
+                                state = gridState,
+                                columns = GridCells.Fixed(effectiveColumns),
+                                contentPadding = contentPadding,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(24.dp),
+                                modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
+                            ) {
+                                items(playlists) { playlist ->
+                                    if (settings.viewMode == CategoryViewMode.GRID) {
+                                        AlbumCard(
+                                            album = Album(
+                                                id = 0,
+                                                title = playlist.name,
+                                                artist = "${playlist.songs.size} Songs",
+                                                artworkUri = null,
+                                                songs = emptyList()
+                                            ),
+                                            onClick = { viewModel?.setSelectedPlaylistId(playlist.id) }
+                                        )
+                                    } else if (settings.viewMode == CategoryViewMode.COMPACT) {
+                                        CompactSongItem(
+                                            song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
+                                            isPlaying = false,
+                                            onClick = { viewModel?.setSelectedPlaylistId(playlist.id) },
+                                            onDetailsClick = {},
+                                            onSwipePlayNext = {},
+                                            onSwipeAddToPlaylist = {},
+                                            label = playlist.name,
+                                            secondaryLabel = "${playlist.songs.size} Songs",
+                                            artworkUri = null
+                                        )
+                                    } else {
+                                        SongItem(
+                                            song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
+                                            isPlaying = false,
+                                            onClick = { viewModel?.setSelectedPlaylistId(playlist.id) },
+                                            onDetailsClick = {},
+                                            onSwipePlayNext = {},
+                                            onSwipeAddToPlaylist = {},
+                                            label = playlist.name,
+                                            secondaryLabel = "${playlist.songs.size} Songs",
+                                            artworkUri = null
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        LibraryFilter.GENRES -> Box(modifier = Modifier.fillMaxSize()) {
+                            val genres = remember(filteredSongs) {
+                                filteredSongs.mapNotNull { it.genre }.distinct().sorted()
+                            }
+                            val categoryKey = "library_genres"
+                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
+                            val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
+                            val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
+
+                            LazyVerticalGrid(
+                                state = gridState,
+                                columns = GridCells.Fixed(effectiveColumns),
+                                contentPadding = contentPadding,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(24.dp),
+                                modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
+                            ) {
+                                items(genres) { genre ->
+                                    val count = filteredSongs.count { it.genre == genre }
+                                    if (settings.viewMode == CategoryViewMode.GRID) {
+                                        GenreCard(
+                                            genre = genre,
+                                            songCount = count,
+                                            onClick = { viewModel?.setSelectedGenreName(genre) }
+                                        )
+                                    } else if (settings.viewMode == CategoryViewMode.COMPACT) {
+                                        CompactSongItem(
+                                            song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
+                                            isPlaying = false,
+                                            onClick = { viewModel?.setSelectedGenreName(genre) },
+                                            onDetailsClick = {},
+                                            onSwipePlayNext = {},
+                                            onSwipeAddToPlaylist = {},
+                                            label = genre,
+                                            secondaryLabel = "$count Songs",
+                                            artworkUri = null
+                                        )
+                                    } else {
+                                        SongItem(
+                                            song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
+                                            isPlaying = false,
+                                            onClick = { viewModel?.setSelectedGenreName(genre) },
+                                            onDetailsClick = {},
+                                            onSwipePlayNext = {},
+                                            onSwipeAddToPlaylist = {},
+                                            label = genre,
+                                            secondaryLabel = "$count Songs",
+                                            artworkUri = null
+                                        )
+                                    }
+                                }
+                            }
                         }
                         else -> Box(modifier = Modifier.fillMaxSize()) {
-                            LazyColumn(
-                                state = listState,
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                contentPadding = contentPadding,
-                                modifier = Modifier.fillMaxSize().verticalScrollbar(listState, padding = scrollbarPadding)
-                            ) {
-                                itemsIndexed(
-                                    items = filteredSongs, 
-                                    key = { _, song -> song.id },
-                                    contentType = { _, _ -> "song_item" } // Added contentType
-                                ) { index, song ->
-                                    SongItem(
-                                        song = song,
-                                        isPlaying = song.id == currentPlayingId, // Changed: Pass stable boolean
-                                        onClick = { onPlaySongs(filteredSongs, index) },
-                                        onDetailsClick = { onSongDetails(song) },
-                                        onSwipePlayNext = {
-                                            viewModel?.addPlayNext(song)
-                                            onShowMessage("Added to Play Next")
-                                        },
-                                        onSwipeAddToPlaylist = { onAddToPlaylist(song) }
-                                    )
+                            val categoryKey = "library_songs"
+                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
+                            val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
+                            
+                            if (settings.viewMode == CategoryViewMode.GRID) {
+                                LazyVerticalGrid(
+                                    state = gridState,
+                                    columns = GridCells.Fixed(settings.columns),
+                                    contentPadding = contentPadding,
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                                    modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
+                                ) {
+                                    items(filteredSongs) { song ->
+                                        AlbumCard(
+                                            album = Album(
+                                                id = song.albumId,
+                                                title = song.title,
+                                                artist = song.artist,
+                                                artworkUri = song.albumArtUri,
+                                                songs = listOf(song)
+                                            ),
+                                            onClick = { onPlaySongs(filteredSongs, filteredSongs.indexOf(song)) }
+                                        )
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    state = listState,
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    contentPadding = contentPadding,
+                                    modifier = Modifier.fillMaxSize().verticalScrollbar(listState, padding = scrollbarPadding)
+                                ) {
+                                    itemsIndexed(
+                                        items = filteredSongs, 
+                                        key = { _, song -> song.id },
+                                        contentType = { _, _ -> "song_item" }
+                                    ) { index, song ->
+                                        if (settings.viewMode == CategoryViewMode.COMPACT) {
+                                            CompactSongItem(
+                                                song = song,
+                                                isPlaying = song.id == currentPlayingId,
+                                                onClick = { onPlaySongs(filteredSongs, index) },
+                                                onDetailsClick = { onSongDetails(song) },
+                                                onSwipePlayNext = {
+                                                    viewModel?.addPlayNext(song)
+                                                    onShowMessage("Added to Play Next")
+                                                },
+                                                onSwipeAddToPlaylist = { onAddToPlaylist(song) }
+                                            )
+                                        } else {
+                                            SongItem(
+                                                song = song,
+                                                isPlaying = song.id == currentPlayingId,
+                                                onClick = { onPlaySongs(filteredSongs, index) },
+                                                onDetailsClick = { onSongDetails(song) },
+                                                onSwipePlayNext = {
+                                                    viewModel?.addPlayNext(song)
+                                                    onShowMessage("Added to Play Next")
+                                                },
+                                                onSwipeAddToPlaylist = { onAddToPlaylist(song) }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             ScrollbarLabel(
@@ -289,6 +541,70 @@ fun LibraryScreen(
                             )
                         )
                 )
+
+                // Top Bar Actions
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(top = 20.dp, end = 24.dp)
+                        .align(Alignment.TopEnd),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val categoryKey = when(currentFilter) {
+                        LibraryFilter.ALBUMS -> "library_albums"
+                        LibraryFilter.ARTISTS -> "library_artists"
+                        LibraryFilter.GENRES -> "library_genres"
+                        LibraryFilter.PLAYLISTS -> "library_playlists"
+                        else -> "library_songs"
+                    }
+                    val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
+                    val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(
+                        viewMode = if (currentFilter == LibraryFilter.ALBUMS || currentFilter == LibraryFilter.ARTISTS || currentFilter == LibraryFilter.GENRES) CategoryViewMode.GRID else CategoryViewMode.DETAILED
+                    )
+
+                    if (settings.viewMode == CategoryViewMode.GRID) {
+                        FilledIconButton(
+                            onClick = {
+                                val newColumns = if (settings.columns >= 4) 1 else settings.columns + 1
+                                viewModel?.updateViewModeSettings(categoryKey, settings.copy(columns = newColumns))
+                            },
+                            modifier = Modifier.size(40.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
+                            )
+                        ) {
+                            Text("${settings.columns}", fontWeight = FontWeight.Black, fontSize = 14.sp)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+
+                    IconButton(
+                        onClick = {
+                            val newMode = when (settings.viewMode) {
+                                CategoryViewMode.DETAILED -> CategoryViewMode.COMPACT
+                                CategoryViewMode.COMPACT -> if (currentFilter == LibraryFilter.SONGS) CategoryViewMode.DETAILED else CategoryViewMode.GRID
+                                CategoryViewMode.GRID -> CategoryViewMode.DETAILED
+                            }
+                            viewModel?.updateViewModeSettings(categoryKey, settings.copy(viewMode = newMode))
+                        },
+                        modifier = Modifier.size(40.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
+                        )
+                    ) {
+                        Icon(
+                            when (settings.viewMode) {
+                                CategoryViewMode.GRID -> Icons.Rounded.GridView
+                                CategoryViewMode.DETAILED -> Icons.Rounded.ViewStream
+                                CategoryViewMode.COMPACT -> Icons.Rounded.ViewHeadline
+                            },
+                            contentDescription = "View Mode",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
                 
                 Box(
                     modifier = Modifier

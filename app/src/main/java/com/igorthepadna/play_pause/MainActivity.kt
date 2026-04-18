@@ -18,6 +18,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -29,7 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -42,6 +44,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.BasicTextField
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -128,9 +132,11 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
     
     val currentFilter by viewModel.currentFilter.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val useArtworkAccent by viewModel.useArtworkAccent.collectAsStateWithLifecycle()
     val isPlayerFullScreenState by viewModel.isPlayerFullScreen.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle(emptyList())
+    var artistCategoryView by remember { mutableStateOf<String?>(null) }
 
     var isSettingsVisible by rememberSaveable { mutableStateOf(false) }
     
@@ -158,7 +164,9 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
 
     // Fix: BackHandler for settings and other UI states
     BackHandler(enabled = true) {
-        if (isSettingsVisible) {
+        if (artistCategoryView != null) {
+            artistCategoryView = null
+        } else if (isSettingsVisible) {
             isSettingsVisible = false
         } else if (showDetailsSheet) {
             showDetailsSheet = false
@@ -176,6 +184,17 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
     val currentTabSettings = tabSortSettingsMap[currentFilter] ?: TabSortSettings()
 
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    
+    val selectedAlbumId by viewModel.selectedAlbumId.collectAsStateWithLifecycle()
+    val selectedArtistName by viewModel.selectedArtistName.collectAsStateWithLifecycle()
+    val selectedPlaylistId by viewModel.selectedPlaylistId.collectAsStateWithLifecycle()
+    val selectedGenreName by viewModel.selectedGenreName.collectAsStateWithLifecycle()
+
+    val isSubMenuOpen by remember {
+        derivedStateOf {
+            selectedAlbumId != null || selectedArtistName != null || selectedPlaylistId != null || selectedGenreName != null || artistCategoryView != null
+        }
+    }
     
     var activeMediaItem by remember(player) { mutableStateOf(player?.currentMediaItem) }
 
@@ -261,7 +280,7 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                 snackbarHost = { 
                     SnackbarHost(snackbarHostState) { data ->
                         val isNowPlayingVisible = activeMediaItem != null
-                        val extraPadding = if (isNowPlayingVisible) 156.dp else 88.dp
+                        val extraPadding = if (isNowPlayingVisible) 80.dp else 0.dp
                         
                         Snackbar(
                             modifier = Modifier
@@ -275,6 +294,9 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                             snackbarData = data
                         )
                     }
+                },
+                bottomBar = {
+                    // Standard NavigationBar removed to re-add floating pill
                 }
             ) { paddingValues ->
                 Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
@@ -303,146 +325,44 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                                     duration = SnackbarDuration.Short
                                 )
                             }
-                        }
+                        },
+                        onSettingsClick = { isSettingsVisible = true },
+                        onSortClick = { showSortSheet = true }
                     )
 
-                    if (activeMediaItem != null && player != null) {
-                        NowPlayingBar(
-                            player = player,
-                            onClick = { viewModel.setPlayerFullScreen(true) },
-                            onDrag = { delta ->
-                                scope.launch {
-                                    playerOffsetY.snapTo((playerOffsetY.value + delta).coerceIn(-screenHeightPx, 0f))
-                                }
-                            },
-                            onDragStopped = { velocity ->
-                                val target = when {
-                                    velocity < -300f -> -screenHeightPx
-                                    velocity > 300f -> 0f
-                                    playerOffsetY.value < -screenHeightPx * 0.2f -> -screenHeightPx
-                                    else -> 0f
-                                }
-                                viewModel.setPlayerFullScreen(target != 0f)
-                                scope.launch {
-                                    playerOffsetY.animateTo(target, spring(stiffness = Spring.StiffnessLow))
-                                }
-                            },
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 72.dp)
-                                .navigationBarsPadding()
-                                .graphicsLayer { alpha = barAlpha }
-                        )
-                    }
-
-                    // Floating Navigation Buttons (Expressive Design)
-                    BoxWithConstraints(
+                    NowPlayingBar(
+                        player = player,
+                        searchQuery = searchQuery,
+                        onSearchQueryChange = { viewModel.setSearchQuery(it) },
+                        currentFilter = currentFilter,
+                        onFilterSelected = { viewModel.setCurrentFilter(it) },
+                        showSearch = !isSubMenuOpen,
+                        onSortClick = { showSortSheet = true },
+                        onSettingsClick = { isSettingsVisible = true },
+                        onClick = { viewModel.setPlayerFullScreen(true) },
+                        onDrag = { delta ->
+                            scope.launch {
+                                playerOffsetY.snapTo((playerOffsetY.value + delta).coerceIn(-screenHeightPx, 0f))
+                            }
+                        },
+                        onDragStopped = { velocity ->
+                            val target = when {
+                                velocity < -300f -> -screenHeightPx
+                                velocity > 300f -> 0f
+                                playerOffsetY.value < -screenHeightPx * 0.2f -> -screenHeightPx
+                                else -> 0f
+                            }
+                            viewModel.setPlayerFullScreen(target != 0f)
+                            scope.launch {
+                                playerOffsetY.animateTo(target, spring(stiffness = Spring.StiffnessLow))
+                            }
+                        },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                            .navigationBarsPadding(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val filters = LibraryFilter.entries
-                        val pagerState = rememberPagerState(
-                            initialPage = filters.indexOf(currentFilter)
-                        ) { filters.size }
-
-                        LaunchedEffect(pagerState.currentPage) {
-                            if (filters[pagerState.currentPage] != currentFilter) {
-                                viewModel.setCurrentFilter(filters[pagerState.currentPage])
-                            }
-                        }
-                        
-                        LaunchedEffect(currentFilter) {
-                            val targetPage = filters.indexOf(currentFilter)
-                            if (pagerState.currentPage != targetPage) {
-                                pagerState.animateScrollToPage(targetPage)
-                            }
-                        }
-
-                        HorizontalPager(
-                            state = pagerState,
-                            modifier = Modifier.height(64.dp),
-                            contentPadding = PaddingValues(horizontal = maxWidth / 2 - 90.dp),
-                            pageSpacing = 16.dp,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) { page ->
-                            val filter = filters[page]
-                            val isSelected = pagerState.currentPage == page
-
-                            val alpha by animateFloatAsState(if (isSelected) 1f else 0.7f, label = "alpha")
-                            val scale by animateFloatAsState(if (isSelected) 1.1f else 0.95f, label = "scale")
-
-                            Box(
-                                modifier = Modifier
-                                    .graphicsLayer {
-                                        scaleX = scale
-                                        scaleY = scale
-                                        this.alpha = alpha
-                                    }
-                                    .width(180.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primaryContainer 
-                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                    )
-                                    .combinedClickable(
-                                        onClick = {
-                                            scope.launch {
-                                                pagerState.animateScrollToPage(page)
-                                            }
-                                        },
-                                        onDoubleClick = {
-                                            showSortSheet = true
-                                        }
-                                    )
-                                    .padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        filter.icon,
-                                        contentDescription = null,
-                                        tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    AnimatedVisibility(visible = isSelected) {
-                                        Text(
-                                            text = filter.label,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.padding(start = 8.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Top Bar Actions
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(top = 20.dp, end = 24.dp), // Shifted down (20dp) and left (24dp) to align with the scroll-pill
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        FilledIconButton(
-                            onClick = { isSettingsVisible = true },
-                            modifier = Modifier.size(40.dp),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
-                            )
-                        ) {
-                            Icon(Icons.Rounded.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp))
-                        }
-                    }
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .graphicsLayer { alpha = barAlpha }
+                    )
                 }
             }
         }
@@ -522,6 +442,14 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                 onAddClick = { song ->
                     selectedSongForPlaylist = song
                     showPlaylistSheet = true
+                },
+                onNavigateToAlbum = { albumId ->
+                    viewModel.setSelectedAlbumId(albumId)
+                    viewModel.setPlayerFullScreen(false)
+                },
+                onNavigateToArtist = { artistName ->
+                    viewModel.setSelectedArtistName(artistName)
+                    viewModel.setPlayerFullScreen(false)
                 }
             )
         }

@@ -15,6 +15,9 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material3.*
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.*
@@ -47,7 +50,10 @@ fun SongItem(
     onDetailsClick: () -> Unit,
     onSwipePlayNext: () -> Unit,
     onSwipeAddToPlaylist: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    secondaryLabel: String? = null,
+    artworkUri: android.net.Uri? = null
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
 
@@ -118,7 +124,7 @@ fun SongItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onClick() },
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(28.dp),
             color = backgroundColor
         ) {
             Row(
@@ -128,14 +134,14 @@ fun SongItem(
                 Box(contentAlignment = Alignment.Center) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(song.albumArtUri)
+                            .data(artworkUri ?: song.albumArtUri)
                             .crossfade(true)
-                            .size(160) // Optimize: Don't load full-res art for small thumbnails
+                            .size(160)
                             .build(),
                         contentDescription = null,
                         modifier = Modifier
                             .size(56.dp)
-                            .clip(RoundedCornerShape(14.dp)),
+                            .clip(RoundedCornerShape(12.dp)),
                         contentScale = ContentScale.Crop,
                         error = painterResource(R.drawable.ic_launcher_foreground)
                     )
@@ -144,7 +150,7 @@ fun SongItem(
                         Box(
                             modifier = Modifier
                                 .size(56.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(Color.Black.copy(alpha = 0.3f)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -157,9 +163,10 @@ fun SongItem(
                 }
                 
                 Spacer(modifier = Modifier.width(16.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = song.title,
+                        text = label ?: song.title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (isPlaying) FontWeight.ExtraBold else FontWeight.Bold,
                         maxLines = 1,
@@ -167,11 +174,12 @@ fun SongItem(
                         color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
                     )
                     Text(
-                        text = song.artist,
+                        text = secondaryLabel ?: song.artist,
                         style = MaterialTheme.typography.bodySmall,
                         color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                
                 IconButton(onClick = onDetailsClick) {
                     Icon(
                         Icons.Default.MoreVert, 
@@ -195,7 +203,11 @@ fun CompactSongItem(
     onSwipeAddToPlaylist: () -> Unit,
     modifier: Modifier = Modifier,
     showArtist: Boolean = true,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp)
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp),
+    label: String? = null,
+    secondaryLabel: String? = null,
+    artworkUri: android.net.Uri? = null,
+    onPlayClick: (() -> Unit)? = null
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
 
@@ -270,8 +282,23 @@ fun CompactSongItem(
                 modifier = Modifier.padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Track Number Pill
-                if (song.trackNumber > 0) {
+                // Artwork or Track Number Pill
+                if (artworkUri != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(artworkUri)
+                            .crossfade(true)
+                            .size(80)
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(6.dp)),
+                        contentScale = ContentScale.Crop,
+                        error = painterResource(R.drawable.ic_launcher_foreground)
+                    )
+                } else if (song.trackNumber > 0) {
                     Surface(
                         modifier = Modifier
                             .padding(end = 12.dp)
@@ -301,7 +328,7 @@ fun CompactSongItem(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = song.title,
+                        text = label ?: song.title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (isPlaying) FontWeight.ExtraBold else FontWeight.SemiBold,
                         maxLines = 1,
@@ -318,7 +345,7 @@ fun CompactSongItem(
                             )
                             if (showArtist) {
                                 Text(
-                                    text = " • ${song.artist}",
+                                    text = " • ${secondaryLabel ?: song.artist}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                     maxLines = 1,
@@ -328,7 +355,7 @@ fun CompactSongItem(
                         }
                     } else if (showArtist) {
                         Text(
-                            text = song.artist,
+                            text = secondaryLabel ?: song.artist,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -337,13 +364,30 @@ fun CompactSongItem(
                     }
                 }
 
-                IconButton(onClick = onDetailsClick, modifier = Modifier.size(40.dp)) {
+                IconButton(
+                    onClick = onDetailsClick,
+                    modifier = Modifier.size(40.dp)
+                ) {
                     Icon(
-                        Icons.Default.MoreVert, 
+                        Icons.Default.MoreVert,
                         contentDescription = "Details",
                         modifier = Modifier.size(20.dp),
                         tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+
+                if (onPlayClick != null) {
+                    IconButton(
+                        onClick = onPlayClick,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.PlayArrow,
+                            contentDescription = "Quick Play ${song.title}",
+                            modifier = Modifier.size(22.dp),
+                            tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
