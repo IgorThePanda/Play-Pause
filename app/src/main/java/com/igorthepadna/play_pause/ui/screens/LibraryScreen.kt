@@ -95,7 +95,7 @@ fun LibraryScreen(
 
     val selectedGenreSongs by viewModel?.selectedGenreSongs?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
 
-    val allAlbums by viewModel?.sortedAlbums?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
+    val albumArtMap by viewModel?.albumArtMap?.collectAsStateWithLifecycle(emptyMap()) ?: remember { mutableStateOf(emptyMap()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -197,7 +197,7 @@ fun LibraryScreen(
                         onSongDetailsClick = onSongDetails,
                         onPlayAllSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
                         onPlaySpecificSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
-                        allAlbums = allAlbums
+                        albumArtMap = albumArtMap
                     )
                 }
             }
@@ -504,9 +504,7 @@ fun LibraryScreen(
                                     modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                                 ) {
                                     items(filteredSongs) { song ->
-                                        val albumArt = remember(allAlbums, song) {
-                                            allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                                        }
+                                        val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                                         AlbumCard(
                                             album = Album(
                                                 id = song.albumId,
@@ -531,9 +529,7 @@ fun LibraryScreen(
                                         key = { _, song -> song.id },
                                         contentType = { _, _ -> "song_item" }
                                     ) { index, song ->
-                                        val albumArt = remember(allAlbums, song) {
-                                            allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                                        }
+                                        val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                                         if (settings.viewMode == CategoryViewMode.COMPACT) {
                                             CompactSongItem(
                                                 song = song,

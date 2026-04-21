@@ -2,6 +2,7 @@ package com.igorthepadna.play_pause.ui.components
 
 import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,7 +32,8 @@ import java.util.Locale
 fun SongDetailsContent(
     song: Song,
     artworkColors: ArtworkColors,
-    onLyricClick: () -> Unit = {}
+    onLyricClick: () -> Unit = {},
+    onFolderClick: (String) -> Unit = {}
 ) {
     var genre by remember { mutableStateOf("Loading...") }
     var bitrate by remember { mutableStateOf("Loading...") }
@@ -205,7 +207,9 @@ fun SongDetailsContent(
         Spacer(modifier = Modifier.height(32.dp))
 
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onFolderClick(song.path) },
             shape = RoundedCornerShape(20.dp),
             color = artworkColors.secondary.copy(alpha = 0.08f),
             border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.15f))

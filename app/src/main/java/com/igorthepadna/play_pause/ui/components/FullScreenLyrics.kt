@@ -51,29 +51,51 @@ fun FullScreenLyrics(
     onDismiss: () -> Unit
 ) {
     val currentMediaItem = player.currentMediaItem
-    val rawLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
-    val parsedLyrics = remember(rawLyrics) { parseLrc(rawLyrics) }
+    val playingLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
+    val viewingLyrics by viewModel.viewingLyrics.collectAsStateWithLifecycle()
+    val lyricPreviewSongId by viewModel.lyricPreviewSongId.collectAsStateWithLifecycle()
+    val isCompactMode by viewModel.isCompactLyricsMode.collectAsStateWithLifecycle()
     
+    val displayLyrics = if (isCompactMode && lyricPreviewSongId != null) viewingLyrics else playingLyrics
+    val parsedLyrics = remember(displayLyrics) { parseLrc(displayLyrics) }
+    
+    val songs by viewModel.songs.collectAsStateWithLifecycle()
+    val viewedSong = remember(songs, lyricPreviewSongId) {
+        songs.find { it.id == lyricPreviewSongId }
+    }
+    
+    val displayMediaItem = if (isCompactMode && viewedSong != null) {
+        // Mock or derive metadata from viewedSong if needed, 
+        // but for now we'll mostly use it for title/artist/duration
+        null 
+    } else {
+        currentMediaItem
+    }
+
+    val displayTitle = if (isCompactMode && viewedSong != null) viewedSong.title else currentMediaItem?.mediaMetadata?.title?.toString() ?: "No Title"
+    val displayArtist = if (isCompactMode && viewedSong != null) viewedSong.artist else currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist"
+    val displayDuration = if (isCompactMode && viewedSong != null) viewedSong.duration else player.duration.coerceAtLeast(0L)
+
     var currentPosition by remember { mutableLongStateOf(player.currentPosition) }
-    val duration = player.duration.coerceAtLeast(0L)
     val isPlaying = player.isPlaying
 
     val useArtworkAccent by viewModel.useArtworkAccent.collectAsStateWithLifecycle()
-    val songs by viewModel.songs.collectAsStateWithLifecycle()
     val allAlbums by viewModel.sortedAlbums.collectAsStateWithLifecycle()
     
     val currentSong = remember(songs, currentMediaItem) {
         songs.find { it.id.toString() == currentMediaItem?.mediaId }
     }
     
-    val currentAlbum = remember(allAlbums, currentSong) {
-        allAlbums.find { it.id == currentSong?.albumId }
+    val effectiveSong = if (isCompactMode && viewedSong != null) viewedSong else currentSong
+
+    val currentAlbum = remember(allAlbums, effectiveSong) {
+        allAlbums.find { it.id == effectiveSong?.albumId }
     }
 
-    val effectiveArtworkUri = remember(currentMediaItem, currentSong, currentAlbum) {
+    val effectiveArtworkUri = remember(currentMediaItem, effectiveSong, currentAlbum) {
         currentAlbum?.artworkUri 
-            ?: currentMediaItem?.mediaMetadata?.artworkUri
-            ?: currentSong?.albumArtUri
+            ?: (if (isCompactMode && viewedSong != null) viewedSong.albumArtUri else currentMediaItem?.mediaMetadata?.artworkUri)
+            ?: effectiveSong?.albumArtUri
     }
 
     val extractedColors = rememberArtworkColors(
@@ -96,7 +118,6 @@ fun FullScreenLyrics(
     val lyricInactiveAlpha by viewModel.lyricInactiveAlpha.collectAsStateWithLifecycle()
     val lyricActiveScale by viewModel.lyricActiveScale.collectAsStateWithLifecycle()
     val lyricLineSpacing by viewModel.lyricLineSpacing.collectAsStateWithLifecycle()
-    val isCompactMode by viewModel.isCompactLyricsMode.collectAsStateWithLifecycle()
 
     val lyricsListState = rememberLazyListState()
     val currentLyricIndex = remember(currentPosition, parsedLyrics) {
@@ -148,7 +169,7 @@ fun FullScreenLyrics(
                     // Header: Title and Artist
                     Column(horizontalAlignment = Alignment.Start) {
                         Text(
-                            currentMediaItem?.mediaMetadata?.title?.toString() ?: "No Title",
+                            displayTitle,
                             style = MaterialTheme.typography.headlineMedium.copy(
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = (-1).sp
@@ -158,7 +179,7 @@ fun FullScreenLyrics(
                             color = Color.White
                         )
                         Text(
-                            text = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist",
+                            text = displayArtist,
                             style = MaterialTheme.typography.titleMedium.copy(
                                 color = artworkColors.secondary,
                                 fontWeight = FontWeight.Bold
@@ -183,21 +204,23 @@ fun FullScreenLyrics(
                                 itemsIndexed(parsedLyrics) { index, lyric ->
                                     FullScreenLyricLineView(
                                         line = lyric,
-                                        currentPosition = currentPosition,
-                                        isActive = index == currentLyricIndex,
+                                        currentPosition = if (isCompactMode && lyricPreviewSongId != null) -1L else currentPosition,
+                                        isActive = !isCompactMode && index == currentLyricIndex,
                                         artworkColors = artworkColors,
                                         fontSize = lyricFontSize,
-                                        inactiveAlpha = lyricInactiveAlpha,
-                                        activeScale = lyricActiveScale,
+                                        inactiveAlpha = if (isCompactMode) 1f else lyricInactiveAlpha,
+                                        activeScale = if (isCompactMode) 1f else lyricActiveScale,
                                         lineSpacing = lyricLineSpacing,
                                         onSeek = { timestamp ->
-                                            player.seekTo(timestamp)
-                                            currentPosition = timestamp
+                                            if (!isCompactMode) {
+                                                player.seekTo(timestamp)
+                                                currentPosition = timestamp
+                                            }
                                         }
                                     )
                                 }
                             }
-                        } else if (!rawLyrics.isNullOrBlank()) {
+                        } else if (!displayLyrics.isNullOrBlank()) {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 horizontalAlignment = Alignment.Start,
@@ -205,7 +228,7 @@ fun FullScreenLyrics(
                             ) {
                                 item {
                                     Text(
-                                        text = rawLyrics!!,
+                                        text = displayLyrics,
                                         style = MaterialTheme.typography.headlineMedium.copy(
                                             fontSize = (lyricFontSize * 0.9f).sp,
                                             fontWeight = FontWeight.Bold,
@@ -360,15 +383,17 @@ fun FullScreenLyrics(
                     Spacer(modifier = Modifier.height(32.dp))
 
                     VerticalSquigglySlider(
-                        value = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f,
+                        value = if (displayDuration > 0) (currentPosition.toFloat() / displayDuration).coerceIn(0f, 1f) else 0f,
                         onValueChange = { newValue: Float ->
-                            val newPos = (newValue * duration).toLong()
-                            player.seekTo(newPos)
-                            currentPosition = newPos
+                            if (!isCompactMode) {
+                                val newPos = (newValue * displayDuration).toLong()
+                                player.seekTo(newPos)
+                                currentPosition = newPos
+                            }
                         },
-                        isPlaying = isPlaying,
-                        onDragStart = { player.pause() },
-                        onDragEnd = { player.play() },
+                        isPlaying = isPlaying && !isCompactMode,
+                        onDragStart = { if (!isCompactMode) player.pause() },
+                        onDragEnd = { if (!isCompactMode) player.play() },
                         activeColor = artworkColors.secondary,
                         inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
                         modifier = Modifier

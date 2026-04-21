@@ -58,7 +58,7 @@ fun ArtistDetailView(
     onExpandCategory: (String) -> Unit = {},
     viewModel: MainViewModel? = null
 ) {
-    val allAlbums by viewModel?.sortedAlbums?.collectAsStateWithLifecycle(emptyList<Album>()) ?: remember { mutableStateOf(emptyList<Album>()) }
+    val albumArtMap by viewModel?.albumArtMap?.collectAsStateWithLifecycle(emptyMap()) ?: remember { mutableStateOf(emptyMap()) }
     val gridState = rememberLazyGridState()
     val artworkColors = rememberArtworkColors(
         artworkUri = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri,
@@ -175,9 +175,7 @@ fun ArtistDetailView(
                                 .padding(8.dp)
                         ) {
                             unreleasedSongs.take(5).forEach { song ->
-                                val albumArt = remember(allAlbums, song) {
-                                    allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                                }
+                                val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                                 CompactSongItem(
                                     song = song,
                                     isPlaying = false,
@@ -241,9 +239,7 @@ fun ArtistDetailView(
                             .padding(8.dp)
                     ) {
                         artist.songs.take(10).forEach { song ->
-                            val albumArt = remember(allAlbums, song) {
-                                allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                            }
+                            val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                             CompactSongItem(
                                 song = song,
                                 isPlaying = false, 
@@ -292,7 +288,7 @@ fun CategoryDetailView(
     onSongDetailsClick: (Song) -> Unit,
     onPlayAllSongs: (List<Song>, Int, Boolean?) -> Unit,
     onPlaySpecificSongs: (List<Song>, Int, Boolean?) -> Unit,
-    allAlbums: List<Album> = emptyList()
+    albumArtMap: Map<Long, android.net.Uri?> = emptyMap()
 ) {
     Scaffold(
         topBar = {
@@ -440,9 +436,7 @@ fun CategoryDetailView(
                 }
                 "Unreleased" -> {
                     gridItems(unreleasedSongs) { song ->
-                        val albumArt = remember(allAlbums, song) {
-                            allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                        }
+                        val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                         when (viewMode) {
                             CategoryViewMode.GRID -> AlbumCard(
                                 album = Album(
@@ -481,9 +475,7 @@ fun CategoryDetailView(
                 }
                 "All Songs" -> {
                     gridItems(artist.songs) { song ->
-                        val albumArt = remember(allAlbums, song) {
-                            allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                        }
+                        val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                         when (viewMode) {
                             CategoryViewMode.GRID -> AlbumCard(
                                 album = Album(

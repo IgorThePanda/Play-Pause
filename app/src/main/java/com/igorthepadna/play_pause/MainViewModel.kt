@@ -279,6 +279,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val albumArtMap: StateFlow<Map<Long, android.net.Uri?>> = _allAlbums.map { albums ->
+        albums.associate { it.id to it.artworkUri }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     // UI Persistence
     sealed class Selection {
         data class Album(val id: Long) : Selection()
@@ -441,10 +445,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isPlayerFullScreen.value = full
     }
 
+    private val _viewingLyrics = MutableStateFlow<String?>(null)
+    val viewingLyrics: StateFlow<String?> = _viewingLyrics.asStateFlow()
+
     fun setFullScreenLyricsVisible(visible: Boolean, compactMode: Boolean = false, songId: Long? = null) {
         _isFullScreenLyricsVisible.value = visible
         _isCompactLyricsMode.value = compactMode
         _lyricPreviewSongId.value = songId
+        if (visible && songId != null) {
+            val song = _songs.value.find { it.id == songId }
+            if (song != null) {
+                viewModelScope.launch {
+                    _viewingLyrics.value = repository.getLyrics(song.path)
+                }
+            }
+        } else if (!visible) {
+            _viewingLyrics.value = null
+        }
     }
 
     fun updateSortSettings(filter: LibraryFilter, settings: TabSortSettings) {
@@ -531,22 +548,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadLyricsForCurrentSong()
     }
 
+    private var playJob: Job? = null
     fun playSongs(songs: List<Song>, startIndex: Int, shuffle: Boolean = false) {
         val player = _player.value ?: return
         if (songs.isEmpty()) return
         val safeStartIndex = startIndex.coerceIn(0, songs.size - 1)
         
-        // Final Fix: Perform MediaItem conversion on background thread, but ALL player calls MUST be on Main.
-        viewModelScope.launch(Dispatchers.Default) {
+        playJob?.cancel()
+        playJob = viewModelScope.launch(Dispatchers.Default) {
             val mediaItems = songs.map { it.toMediaItem() }
             withContext(Dispatchers.Main) {
                 try {
-                    player.shuffleModeEnabled = shuffle
                     player.stop()
                     player.clearMediaItems()
-                    player.setMediaItems(mediaItems, safeStartIndex, 0L)
-                    player.prepare()
-                    player.play()
+                    
+                    // Optimization for large lists to prevent Binder transaction failures
+                    if (mediaItems.size > 500) {
+                        // Add target item first for immediate feedback
+                        player.setMediaItem(mediaItems[safeStartIndex])
+                        player.prepare()
+                        player.play()
+                        player.shuffleModeEnabled = shuffle
+
+                        val before = mediaItems.subList(0, safeStartIndex)
+                        val after = mediaItems.subList(safeStartIndex + 1, mediaItems.size)
+                        
+                        // Add the rest in background chunks
+                        after.chunked(200).forEach { chunk ->
+                            player.addMediaItems(chunk)
+                        }
+                        var insertPos = 0
+                        before.chunked(200).forEach { chunk ->
+                            player.addMediaItems(insertPos, chunk)
+                            insertPos += chunk.size
+                        }
+                    } else {
+                        player.setMediaItems(mediaItems, safeStartIndex, 0L)
+                        player.shuffleModeEnabled = shuffle
+                        player.prepare()
+                        player.play()
+                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }

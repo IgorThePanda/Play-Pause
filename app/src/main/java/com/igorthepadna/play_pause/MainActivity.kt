@@ -1,7 +1,10 @@
 package com.igorthepadna.play_pause
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -498,7 +501,17 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                 artworkColors = detailsArtworkColors,
                 onLyricClick = {
                     showDetailsSheet = false
-                    viewModel.setFullScreenLyricsVisible(true, compactMode = true)
+                    viewModel.setFullScreenLyricsVisible(true, compactMode = true, songId = selectedSongForDetails?.id)
+                },
+                onFolderClick = { path ->
+                    val folderPath = path.substringBeforeLast("/")
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = ClipData.newPlainText("Folder Path", folderPath)
+                    clipboard.setPrimaryClip(clip)
+                    scope.launch {
+                        snackbarHostState.currentSnackbarData?.dismiss()
+                        snackbarHostState.showSnackbar("Path copied to clipboard")
+                    }
                 }
             )
         }
