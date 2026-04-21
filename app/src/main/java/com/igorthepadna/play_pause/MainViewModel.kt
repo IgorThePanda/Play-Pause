@@ -19,6 +19,7 @@ import android.provider.MediaStore
 import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +89,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val searchQuery = _searchQuery.asStateFlow()
 
     // Debounced search query
+    @OptIn(FlowPreview::class)
     private val debouncedSearchQuery = _searchQuery
         .debounce(20L) // Even more aggressive for truly "instant" feedback
         .distinctUntilChanged()
@@ -127,6 +129,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lyricLineSpacing = MutableStateFlow(prefs.getFloat("lyric_line_spacing", 12f))
     val lyricLineSpacing = _lyricLineSpacing.asStateFlow()
 
+    private val _showLyricsProgress = MutableStateFlow(prefs.getBoolean("show_lyrics_progress", true))
+    val showLyricsProgress = _showLyricsProgress.asStateFlow()
+
+    private val _showTimerOnPlayButton = MutableStateFlow(prefs.getBoolean("show_timer_on_play_button", false))
+    val showTimerOnPlayButton = _showTimerOnPlayButton.asStateFlow()
+
     // Persistent Navigation State
     private val _currentFilter = MutableStateFlow(
         runCatching { LibraryFilter.valueOf(prefs.getString("last_filter", LibraryFilter.ALBUMS.name)!!) }.getOrDefault(LibraryFilter.ALBUMS)
@@ -135,6 +143,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isPlayerFullScreen = MutableStateFlow(false)
     val isPlayerFullScreen = _isPlayerFullScreen.asStateFlow()
+
+    private val _isFullScreenLyricsVisible = MutableStateFlow(false)
+    val isFullScreenLyricsVisible = _isFullScreenLyricsVisible.asStateFlow()
+
+    private val _isCompactLyricsMode = MutableStateFlow(false)
+    val isCompactLyricsMode = _isCompactLyricsMode.asStateFlow()
+
+    private val _lyricPreviewSongId = MutableStateFlow<Long?>(null)
+    val lyricPreviewSongId = _lyricPreviewSongId.asStateFlow()
 
     // Per-tab Sort Settings
     private val _tabSortSettings = MutableStateFlow<Map<LibraryFilter, TabSortSettings>>(
@@ -263,55 +280,101 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // UI Persistence
-    private val _selectedAlbumId = MutableStateFlow<Long?>(null)
-    val selectedAlbumId = _selectedAlbumId.asStateFlow()
+    sealed class Selection {
+        data class Album(val id: Long) : Selection()
+        data class Artist(val name: String) : Selection()
+        data class ArtistCategory(val artistName: String, val category: String) : Selection()
+        data class Playlist(val id: String) : Selection()
+        data class Genre(val name: String) : Selection()
+    }
 
-    private val _selectedArtistName = MutableStateFlow<String?>(null)
-    val selectedArtistName = _selectedArtistName.asStateFlow()
+    private val _selectionStack = MutableStateFlow<List<Selection>>(emptyList())
+    val selectionStack = _selectionStack.asStateFlow()
 
-    private val _selectedPlaylistId = MutableStateFlow<String?>(null)
-    val selectedPlaylistId = _selectedPlaylistId.asStateFlow()
-
-    private val _selectedGenreName = MutableStateFlow<String?>(null)
-    val selectedGenreName = _selectedGenreName.asStateFlow()
-
-    val selectedAlbum = combine(_selectedAlbumId, sortedAlbums) { id, albums ->
-        albums.find { it.id == id }
+    val selectedDetail = combine(
+        _selectionStack,
+        sortedAlbums,
+        sortedArtists,
+        playlists,
+        _songs
+    ) { stack, albums, artists, playlists, _ ->
+        val last = stack.lastOrNull() ?: return@combine null
+        when (last) {
+            is Selection.Album -> albums.find { it.id == last.id }
+            is Selection.Artist -> artists.find { it.name == last.name }
+            is Selection.ArtistCategory -> {
+                val artist = artists.find { it.name == last.artistName }
+                if (artist != null) (artist to last.category) else null
+            }
+            is Selection.Playlist -> playlists.find { it.id == last.id }
+            is Selection.Genre -> last.name
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val selectedArtist = combine(_selectedArtistName, sortedArtists) { name, artists ->
-        artists.find { it.name == name }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    // Keep individual flows for backward compatibility/internal logic if needed, but derived from the stack
+    val selectedAlbum = selectedDetail.map { it as? Album }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val selectedArtist = selectedDetail.map { it as? Artist }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val selectedGenreName = selectedDetail.map { it as? String }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val selectedGenreSongs = combine(_selectedGenreName, _songs) { name, songs ->
+    val selectedGenreSongs = combine(selectedGenreName, _songs) { name, songs ->
         if (name == null) emptyList()
         else songs.filter { it.genre == name }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val selectedPlaylist = _selectedPlaylistId.flatMapLatest { id ->
-        if (id == null) flowOf(null)
-        else repository.getPlaylistWithSongs(id)
+    val selectedPlaylist = _selectionStack.map { it.lastOrNull() }.flatMapLatest { selection ->
+        if (selection is Selection.Playlist) repository.getPlaylistWithSongs(selection.id)
+        else flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
     }
 
+    fun clearSelections() {
+        _selectionStack.value = emptyList()
+    }
+
+    fun popSelection() {
+        if (_selectionStack.value.isNotEmpty()) {
+            _selectionStack.value = _selectionStack.value.dropLast(1)
+        }
+    }
+
     fun setSelectedAlbumId(id: Long?) {
-        _selectedAlbumId.value = id
+        if (id == null) {
+            clearSelections()
+        } else {
+            _selectionStack.value = _selectionStack.value + Selection.Album(id)
+        }
     }
 
     fun setSelectedArtistName(name: String?) {
-        _selectedArtistName.value = name
+        if (name == null) {
+            clearSelections()
+        } else {
+            _selectionStack.value = _selectionStack.value + Selection.Artist(name)
+        }
+    }
+
+    fun setSelectedArtistCategory(artistName: String, category: String) {
+        _selectionStack.value = _selectionStack.value + Selection.ArtistCategory(artistName, category)
     }
 
     fun setSelectedPlaylistId(id: String?) {
-        _selectedPlaylistId.value = id
+        if (id == null) {
+            clearSelections()
+        } else {
+            _selectionStack.value = _selectionStack.value + Selection.Playlist(id)
+        }
     }
 
     fun setSelectedGenreName(name: String?) {
-        _selectedGenreName.value = name
+        if (name == null) {
+            clearSelections()
+        } else {
+            _selectionStack.value = _selectionStack.value + Selection.Genre(name)
+        }
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -359,6 +422,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putFloat("lyric_line_spacing", spacing).apply()
     }
 
+    fun setShowLyricsProgress(show: Boolean) {
+        _showLyricsProgress.value = show
+        prefs.edit().putBoolean("show_lyrics_progress", show).apply()
+    }
+
+    fun setShowTimerOnPlayButton(show: Boolean) {
+        _showTimerOnPlayButton.value = show
+        prefs.edit().putBoolean("show_timer_on_play_button", show).apply()
+    }
+
     fun setCurrentFilter(filter: LibraryFilter) {
         _currentFilter.value = filter
         prefs.edit().putString("last_filter", filter.name).apply()
@@ -366,6 +439,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPlayerFullScreen(full: Boolean) {
         _isPlayerFullScreen.value = full
+    }
+
+    fun setFullScreenLyricsVisible(visible: Boolean, compactMode: Boolean = false, songId: Long? = null) {
+        _isFullScreenLyricsVisible.value = visible
+        _isCompactLyricsMode.value = compactMode
+        _lyricPreviewSongId.value = songId
     }
 
     fun updateSortSettings(filter: LibraryFilter, settings: TabSortSettings) {
@@ -452,7 +531,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadLyricsForCurrentSong()
     }
 
-    fun playSongs(songs: List<Song>, startIndex: Int) {
+    fun playSongs(songs: List<Song>, startIndex: Int, shuffle: Boolean = false) {
         val player = _player.value ?: return
         if (songs.isEmpty()) return
         val safeStartIndex = startIndex.coerceIn(0, songs.size - 1)
@@ -462,6 +541,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val mediaItems = songs.map { it.toMediaItem() }
             withContext(Dispatchers.Main) {
                 try {
+                    player.shuffleModeEnabled = shuffle
                     player.stop()
                     player.clearMediaItems()
                     player.setMediaItems(mediaItems, safeStartIndex, 0L)

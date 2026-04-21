@@ -15,21 +15,30 @@ import kotlinx.coroutines.withContext
 
 data class ArtworkColors(
     val primary: Color,
-    val secondary: Color
+    val secondary: Color,
+    val tertiary: Color
 )
 
 @Composable
-fun rememberArtworkColors(artworkUri: Uri?, defaultPrimary: Color, defaultSecondary: Color): ArtworkColors {
+fun rememberArtworkColors(
+    artworkUri: Uri?,
+    defaultPrimary: Color,
+    defaultSecondary: Color,
+    defaultTertiary: Color = defaultSecondary
+): ArtworkColors {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var colors by remember(artworkUri) { 
-        mutableStateOf(ArtworkColors(defaultPrimary, defaultSecondary)) 
+    var colors by remember(artworkUri) {
+        mutableStateOf(ArtworkColors(defaultPrimary, defaultSecondary, defaultTertiary)) 
     }
 
     LaunchedEffect(artworkUri) {
         if (artworkUri == null) {
-            colors = ArtworkColors(defaultPrimary, defaultSecondary)
+            colors = ArtworkColors(defaultPrimary, defaultSecondary, defaultTertiary)
             return@LaunchedEffect
         }
+
+        // Immediately reset to defaults when URI changes to avoid color "leakage" from previous artwork
+        colors = ArtworkColors(defaultPrimary, defaultSecondary, defaultTertiary)
 
         withContext(Dispatchers.IO) {
             val loader = ImageLoader(context)
@@ -44,18 +53,18 @@ fun rememberArtworkColors(artworkUri: Uri?, defaultPrimary: Color, defaultSecond
                 val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
                 if (bitmap != null) {
                     val palette = Palette.from(bitmap)
-                        .maximumColorCount(32) 
+                        .maximumColorCount(32)
                         .generate()
                     
                     val swatches = palette.swatches.sortedByDescending { it.population }
-                    
+
                     // Primary extraction (background tint)
                     val primaryInt = palette.getDarkMutedSwatch()?.rgb
                         ?: palette.getMutedSwatch()?.rgb
                         ?: palette.getDominantSwatch()?.rgb
                         ?: defaultPrimary.toArgb()
 
-                    // Accent extraction
+                    // Accent extraction (Secondary)
                     val accentSwatch = palette.getVibrantSwatch()
                         ?: palette.getLightVibrantSwatch()
                         ?: palette.getDarkVibrantSwatch()
@@ -67,26 +76,35 @@ fun rememberArtworkColors(artworkUri: Uri?, defaultPrimary: Color, defaultSecond
                     val hsl = FloatArray(3)
                     androidx.core.graphics.ColorUtils.colorToHSL(baseSecondary, hsl)
 
-                    // No hard fallback to theme color for grayscale.
-                    // Instead, we allow the extracted gray but normalize it for UI visibility.
-                    // This keeps the B&W "feel" without shifting to random colors like Red.
-                    
-                    // 1. Force saturation to 0 if it's very low to kill "random red" shifts
                     if (hsl[1] < 0.12f) {
-                        hsl[1] = 0f 
+                        hsl[1] = 0f
                     } else {
-                        // 2. If it is colorful, ensure it's punchy enough
-                        hsl[1] = hsl[1].coerceIn(0.45f, 0.9f)
+                        hsl[1] = hsl[1].coerceIn(0.35f, 0.95f)
                     }
-
-                    // 3. Ensure it's not too dark or too bright for text/pills
-                    hsl[2] = hsl[2].coerceIn(0.5f, 0.65f)
-                    
+                    hsl[2] = hsl[2].coerceIn(0.4f, 0.75f)
                     val finalSecondary = Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
+
+                    // Tertiary extraction (Different from secondary)
+                    val tertiarySwatch = palette.getLightMutedSwatch()
+                        ?: palette.getMutedSwatch()
+                        ?: swatches.find { it.rgb != accentSwatch?.rgb }
+                        ?: palette.getDominantSwatch()
+
+                    val baseTertiary = tertiarySwatch?.rgb ?: defaultSecondary.toArgb()
+                    val hslT = FloatArray(3)
+                    androidx.core.graphics.ColorUtils.colorToHSL(baseTertiary, hslT)
+                    if (hslT[1] < 0.12f) {
+                        hslT[1] = 0f
+                    } else {
+                        hslT[1] = hslT[1].coerceIn(0.35f, 0.95f)
+                    }
+                    hslT[2] = hslT[2].coerceIn(0.4f, 0.75f)
+                    val finalTertiary = Color(androidx.core.graphics.ColorUtils.HSLToColor(hslT))
 
                     colors = ArtworkColors(
                         primary = Color(primaryInt),
-                        secondary = finalSecondary
+                        secondary = finalSecondary,
+                        tertiary = finalTertiary
                     )
                 }
             }

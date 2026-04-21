@@ -30,7 +30,8 @@ import java.util.Locale
 @Composable
 fun SongDetailsContent(
     song: Song,
-    artworkColors: ArtworkColors
+    artworkColors: ArtworkColors,
+    onLyricClick: () -> Unit = {}
 ) {
     var genre by remember { mutableStateOf("Loading...") }
     var bitrate by remember { mutableStateOf("Loading...") }
@@ -161,7 +162,12 @@ fun SongDetailsContent(
         androidx.compose.ui.layout.Layout(
             content = {
                 details.forEach { (icon, text) ->
-                    DetailPill(icon, text, artworkColors.secondary)
+                    DetailPill(
+                        icon = icon,
+                        text = text,
+                        color = artworkColors.secondary,
+                        onClick = if (icon == Icons.Rounded.Lyrics) onLyricClick else null
+                    )
                 }
             }
         ) { measurables, constraints ->
@@ -224,9 +230,9 @@ fun SongDetailsContent(
 }
 
 @Composable
-fun DetailPill(icon: ImageVector, text: String, color: Color) {
+fun DetailPill(icon: ImageVector, text: String, color: Color, onClick: (() -> Unit)? = null) {
     SuggestionChip(
-        onClick = { },
+        onClick = { onClick?.invoke() },
         label = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold) },
         icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color) },
         shape = RoundedCornerShape(16.dp),

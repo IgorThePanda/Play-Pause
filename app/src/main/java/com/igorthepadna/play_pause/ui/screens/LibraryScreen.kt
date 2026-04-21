@@ -40,6 +40,7 @@ import com.igorthepadna.play_pause.ui.components.SongItem
 import com.igorthepadna.play_pause.ui.components.AlbumDetailView
 import com.igorthepadna.play_pause.ui.components.ArtistCard
 import com.igorthepadna.play_pause.ui.components.ArtistDetailView
+import com.igorthepadna.play_pause.ui.components.CategoryDetailView
 import com.igorthepadna.play_pause.ui.components.GenreDetailView
 import com.igorthepadna.play_pause.ui.components.playlists.PlaylistView
 import com.igorthepadna.play_pause.ui.components.playlists.PlaylistDetailView
@@ -62,7 +63,7 @@ fun LibraryScreen(
     hasPermission: Boolean,
     isRefreshing: Boolean,
     onPermissionChanged: (Boolean) -> Unit,
-    onPlaySongs: (List<Song>, Int) -> Unit,
+    onPlaySongs: (List<Song>, Int, Boolean?) -> Unit,
     onSongDetails: (Song) -> Unit,
     onAddToPlaylist: (Song) -> Unit,
     viewModel: MainViewModel? = null,
@@ -80,17 +81,11 @@ fun LibraryScreen(
     // Read the current playing ID but don't perform the comparison here
     val currentPlayingId by viewModel?.currentPlayingId?.collectAsStateWithLifecycle(-1L) ?: remember { mutableLongStateOf(-1L) }
     
-    val savedAlbumId by viewModel?.selectedAlbumId?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
-    val savedArtistName by viewModel?.selectedArtistName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
-    val savedPlaylistId by viewModel?.selectedPlaylistId?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
-    val savedGenreName by viewModel?.selectedGenreName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
+    val selectedDetail by viewModel?.selectedDetail?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
+    val selectedPlaylistWithMetadata by viewModel?.selectedPlaylist?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
 
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
-
-    val selectedAlbum = remember(savedAlbumId, sortedAlbums) { sortedAlbums.find { it.id == savedAlbumId } }
-    val selectedArtist = remember(savedArtistName, sortedArtists) { sortedArtists.find { it.name == savedArtistName } }
-    val selectedPlaylistWithMetadata by viewModel?.selectedPlaylist?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
     
     val selectedPlaylistSongs = remember(selectedPlaylistWithMetadata, filteredSongs) {
         selectedPlaylistWithMetadata?.songs?.mapNotNull { songId ->
@@ -100,32 +95,32 @@ fun LibraryScreen(
 
     val selectedGenreSongs by viewModel?.selectedGenreSongs?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
 
+    val allAlbums by viewModel?.sortedAlbums?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions -> onPermissionChanged(permissions.values.all { it }) }
 
-    BackHandler(enabled = selectedAlbum != null || selectedArtist != null || savedPlaylistId != null || savedGenreName != null) {
-        if (selectedAlbum != null) viewModel?.setSelectedAlbumId(null)
-        else if (selectedArtist != null) viewModel?.setSelectedArtistName(null)
-        else if (savedPlaylistId != null) viewModel?.setSelectedPlaylistId(null)
-        else if (savedGenreName != null) viewModel?.setSelectedGenreName(null)
+    BackHandler(enabled = selectedDetail != null) {
+        viewModel?.popSelection()
     }
 
     // Automatically close sub-menus when the navigation tab (filter) changes
     LaunchedEffect(currentFilter) {
-        viewModel?.setSelectedAlbumId(null)
-        viewModel?.setSelectedArtistName(null)
-        viewModel?.setSelectedPlaylistId(null)
-        viewModel?.setSelectedGenreName(null)
+        viewModel?.clearSelections()
     }
 
     AnimatedContent(
-        targetState = (selectedAlbum ?: selectedArtist ?: selectedPlaylistWithMetadata ?: savedGenreName),
+        targetState = selectedDetail,
         transitionSpec = {
             if (targetState != null) {
-                (slideInHorizontally { width -> width } + fadeIn()).togetherWith(slideOutHorizontally { width -> -width / 2 } + fadeOut())
+                (slideInHorizontally { width -> width } + fadeIn())
+                    .togetherWith(slideOutHorizontally { width -> -width / 2 } + fadeOut())
+                    .apply { targetContentZIndex = 1f }
             } else {
-                (slideInHorizontally { width -> -width / 2 } + fadeIn()).togetherWith(slideOutHorizontally { width -> width } + fadeOut())
+                (slideInHorizontally { width -> -width / 2 } + fadeIn())
+                    .togetherWith(slideOutHorizontally { width -> width } + fadeOut())
+                    .apply { targetContentZIndex = -1f }
             }
         },
         label = "library_transition"
@@ -134,9 +129,12 @@ fun LibraryScreen(
             is Album -> AlbumDetailView(
                 album = detailItem,
                 player = player,
-                onBack = { viewModel?.setSelectedAlbumId(null) },
+                onBack = { viewModel?.popSelection() },
+                onNavigateToArtist = { artistName ->
+                    viewModel?.setSelectedArtistName(artistName)
+                },
                 onSongDetails = onSongDetails,
-                onPlaySongs = onPlaySongs,
+                onPlaySongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
                 onSwipePlayNext = { song ->
                     viewModel?.addPlayNext(song)
                     onShowMessage("Added to Play Next: ${song.title}")
@@ -145,22 +143,69 @@ fun LibraryScreen(
             )
             is Artist -> ArtistDetailView(
                 artist = detailItem,
-                onBack = { viewModel?.setSelectedArtistName(null) },
+                onBack = { viewModel?.popSelection() },
                 onAlbumClick = { viewModel?.setSelectedAlbumId(it.id) },
-                onPlayArtist = { onPlaySongs(detailItem.songs.shuffled(), 0) },
+                onPlayArtist = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
                 onSongClick = { song ->
-                    onPlaySongs(detailItem.songs, detailItem.songs.indexOf(song))
+                    onPlaySongs(detailItem.songs, detailItem.songs.indexOf(song), null)
                 },
                 onSongDetailsClick = onSongDetails,
-                onPlayAllSongs = { onPlaySongs(detailItem.songs, 0) },
-                onPlaySpecificSongs = { songs -> onPlaySongs(songs, 0) },
+                onPlayAllSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
+                onPlaySpecificSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
+                onExpandCategory = { category ->
+                    viewModel?.setSelectedArtistCategory(detailItem.name, category)
+                },
                 viewModel = viewModel
             )
+            is Pair<*, *> -> {
+                val artist = (detailItem.first as? Artist)
+                val category = (detailItem.second as? String)
+                if (artist != null && category != null) {
+                    val (mainAlbums, singles) = remember(artist.albums) {
+                        artist.albums.partition { it.songs.size > 2 }
+                    }
+                    val unreleasedSongs = remember(artist.songs) {
+                        artist.songs.filter { song ->
+                            val folderName = song.path.substringBeforeLast('/').substringAfterLast('/')
+                            folderName.startsWith("XXXX", ignoreCase = true)
+                        }
+                    }
+                    val categoryKey = "artist_${artist.name}_$category"
+                    val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
+                    val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(
+                        viewMode = if (category == "Albums" || category == "Singles & EPs") CategoryViewMode.GRID
+                        else CategoryViewMode.DETAILED
+                    )
+
+                    CategoryDetailView(
+                        title = category,
+                        artist = artist,
+                        mainAlbums = mainAlbums,
+                        singles = singles,
+                        unreleasedSongs = unreleasedSongs,
+                        viewMode = settings.viewMode,
+                        columns = settings.columns,
+                        onViewModeChange = { newMode ->
+                            viewModel?.updateViewModeSettings(categoryKey, settings.copy(viewMode = newMode))
+                        },
+                        onColumnsChange = { newColumns ->
+                            viewModel?.updateViewModeSettings(categoryKey, settings.copy(columns = newColumns))
+                        },
+                        onBack = { viewModel?.popSelection() },
+                        onAlbumClick = { viewModel?.setSelectedAlbumId(it.id) },
+                        onSongClick = { onPlaySongs(listOf(it), 0, null) },
+                        onSongDetailsClick = onSongDetails,
+                        onPlayAllSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
+                        onPlaySpecificSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
+                        allAlbums = allAlbums
+                    )
+                }
+            }
             is Playlist -> PlaylistDetailView(
                 playlist = detailItem,
                 playlistSongs = selectedPlaylistSongs,
                 currentPlayingId = currentPlayingId,
-                onBack = { viewModel?.setSelectedPlaylistId(null) },
+                onBack = { viewModel?.popSelection() },
                 onPlaySongs = onPlaySongs,
                 onSongDetails = onSongDetails,
                 onSwipePlayNext = { song ->
@@ -174,11 +219,10 @@ fun LibraryScreen(
                 genre = detailItem,
                 songs = selectedGenreSongs,
                 currentPlayingId = currentPlayingId,
-                onBack = { viewModel?.setSelectedGenreName(null) },
-                onSongClick = { song -> onPlaySongs(selectedGenreSongs, selectedGenreSongs.indexOf(song)) },
+                onBack = { viewModel?.popSelection() },
+                onSongClick = { song -> onPlaySongs(selectedGenreSongs, selectedGenreSongs.indexOf(song), null) },
                 onSongDetailsClick = onSongDetails,
-                onPlayAllSongs = { onPlaySongs(selectedGenreSongs, 0) },
-                onShuffleSongs = { onPlaySongs(selectedGenreSongs.shuffled(), 0) },
+                onPlaySongs = onPlaySongs,
                 onSwipePlayNext = { song ->
                     viewModel?.addPlayNext(song)
                     onShowMessage("Added to Play Next: ${song.title}")
@@ -233,7 +277,7 @@ fun LibraryScreen(
                                         AlbumCard(
                                             album = album, 
                                             onClick = { viewModel?.setSelectedAlbumId(album.id) },
-                                            onPlayClick = { onPlaySongs(album.songs, 0) },
+                                            onPlayClick = { onPlaySongs(album.songs, 0, null) },
                                             columns = effectiveColumns
                                         )
                                     } else if (settings.viewMode == CategoryViewMode.COMPACT) {
@@ -247,7 +291,7 @@ fun LibraryScreen(
                                             label = album.title,
                                             secondaryLabel = album.artist,
                                             artworkUri = album.artworkUri,
-                                            onPlayClick = { onPlaySongs(album.songs, 0) }
+                                            onPlayClick = { onPlaySongs(album.songs, 0, null) }
                                         )
                                     } else {
                                         SongItem(
@@ -460,15 +504,18 @@ fun LibraryScreen(
                                     modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                                 ) {
                                     items(filteredSongs) { song ->
+                                        val albumArt = remember(allAlbums, song) {
+                                            allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
+                                        }
                                         AlbumCard(
                                             album = Album(
                                                 id = song.albumId,
                                                 title = song.title,
                                                 artist = song.artist,
-                                                artworkUri = song.albumArtUri,
+                                                artworkUri = albumArt,
                                                 songs = listOf(song)
                                             ),
-                                            onClick = { onPlaySongs(filteredSongs, filteredSongs.indexOf(song)) }
+                                            onClick = { onPlaySongs(filteredSongs, filteredSongs.indexOf(song), null) }
                                         )
                                     }
                                 }
@@ -484,29 +531,34 @@ fun LibraryScreen(
                                         key = { _, song -> song.id },
                                         contentType = { _, _ -> "song_item" }
                                     ) { index, song ->
+                                        val albumArt = remember(allAlbums, song) {
+                                            allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
+                                        }
                                         if (settings.viewMode == CategoryViewMode.COMPACT) {
                                             CompactSongItem(
                                                 song = song,
                                                 isPlaying = song.id == currentPlayingId,
-                                                onClick = { onPlaySongs(filteredSongs, index) },
+                                                onClick = { onPlaySongs(filteredSongs, index, null) },
                                                 onDetailsClick = { onSongDetails(song) },
                                                 onSwipePlayNext = {
                                                     viewModel?.addPlayNext(song)
                                                     onShowMessage("Added to Play Next")
                                                 },
-                                                onSwipeAddToPlaylist = { onAddToPlaylist(song) }
+                                                onSwipeAddToPlaylist = { onAddToPlaylist(song) },
+                                                artworkUri = albumArt
                                             )
                                         } else {
                                             SongItem(
                                                 song = song,
                                                 isPlaying = song.id == currentPlayingId,
-                                                onClick = { onPlaySongs(filteredSongs, index) },
+                                                onClick = { onPlaySongs(filteredSongs, index, null) },
                                                 onDetailsClick = { onSongDetails(song) },
                                                 onSwipePlayNext = {
                                                     viewModel?.addPlayNext(song)
                                                     onShowMessage("Added to Play Next")
                                                 },
-                                                onSwipeAddToPlaylist = { onAddToPlaylist(song) }
+                                                onSwipeAddToPlaylist = { onAddToPlaylist(song) },
+                                                artworkUri = albumArt
                                             )
                                         }
                                     }

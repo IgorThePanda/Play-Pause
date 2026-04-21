@@ -396,6 +396,17 @@ fun LyricSettingsScreen(
                     onValueChange = { viewModel.setLyricActiveScale(it) }
                 )
             }
+
+            SettingsSection(title = "Interactions") {
+                val showLyricsProgress by viewModel.showLyricsProgress.collectAsStateWithLifecycle()
+                SettingsSwitchItem(
+                    title = "Show Progress Bar",
+                    subtitle = "Show the squiggly progress bar in fullscreen lyrics",
+                    icon = Icons.Rounded.LinearScale,
+                    checked = showLyricsProgress,
+                    onCheckedChange = { viewModel.setShowLyricsProgress(it) }
+                )
+            }
             
             Spacer(Modifier.height(40.dp))
         }

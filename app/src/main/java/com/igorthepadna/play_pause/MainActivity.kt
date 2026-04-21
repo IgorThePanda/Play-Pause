@@ -58,6 +58,7 @@ import com.igorthepadna.play_pause.data.LibraryFilter
 import com.igorthepadna.play_pause.data.SortOrder
 import com.igorthepadna.play_pause.data.SortType
 import com.igorthepadna.play_pause.data.Song
+import com.igorthepadna.play_pause.ui.components.FullScreenLyrics
 import com.igorthepadna.play_pause.ui.components.FullScreenPlayer
 import com.igorthepadna.play_pause.ui.components.NowPlayingBar
 import com.igorthepadna.play_pause.ui.components.PlaylistSelectionSheet
@@ -162,11 +163,15 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
         defaultSecondary = MaterialTheme.colorScheme.primary
     )
 
+    val isAnyOverlayVisible by remember {
+        derivedStateOf {
+            isSettingsVisible || showDetailsSheet || showPlaylistSheet || showSortSheet || isPlayerFullScreenState
+        }
+    }
+
     // Fix: BackHandler for settings and other UI states
-    BackHandler(enabled = true) {
-        if (artistCategoryView != null) {
-            artistCategoryView = null
-        } else if (isSettingsVisible) {
+    BackHandler(enabled = isAnyOverlayVisible) {
+        if (isSettingsVisible) {
             isSettingsVisible = false
         } else if (showDetailsSheet) {
             showDetailsSheet = false
@@ -185,14 +190,11 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
 
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     
-    val selectedAlbumId by viewModel.selectedAlbumId.collectAsStateWithLifecycle()
-    val selectedArtistName by viewModel.selectedArtistName.collectAsStateWithLifecycle()
-    val selectedPlaylistId by viewModel.selectedPlaylistId.collectAsStateWithLifecycle()
-    val selectedGenreName by viewModel.selectedGenreName.collectAsStateWithLifecycle()
+    val selectionStack by viewModel.selectionStack.collectAsStateWithLifecycle()
 
     val isSubMenuOpen by remember {
         derivedStateOf {
-            selectedAlbumId != null || selectedArtistName != null || selectedPlaylistId != null || selectedGenreName != null || artistCategoryView != null
+            selectionStack.isNotEmpty() || artistCategoryView != null
         }
     }
     
@@ -269,6 +271,8 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
         onDispose { player.removeListener(listener) }
     }
 
+    val isFullScreenLyricsVisible by viewModel.isFullScreenLyricsVisible.collectAsStateWithLifecycle()
+
     Box(modifier = Modifier.fillMaxSize()) {
         if (isSettingsVisible) {
             MainSettingsScreen(viewModel, onBack = { isSettingsVisible = false })
@@ -306,7 +310,7 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                         hasPermission = hasPermission,
                         isRefreshing = isRefreshing,
                         onPermissionChanged = { hasPermission = it },
-                        onPlaySongs = { songList, index -> viewModel.playSongs(songList, index) },
+                        onPlaySongs = { songList, index, shuffle -> viewModel.playSongs(songList, index, shuffle ?: false) },
                         onSongDetails = { song ->
                             selectedSongForDetails = song
                             showDetailsSheet = true
@@ -357,6 +361,7 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                                 playerOffsetY.animateTo(target, spring(stiffness = Spring.StiffnessLow))
                             }
                         },
+                        viewModel = viewModel,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
@@ -444,13 +449,23 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                     showPlaylistSheet = true
                 },
                 onNavigateToAlbum = { albumId ->
+                    viewModel.clearSelections()
                     viewModel.setSelectedAlbumId(albumId)
                     viewModel.setPlayerFullScreen(false)
                 },
                 onNavigateToArtist = { artistName ->
+                    viewModel.clearSelections()
                     viewModel.setSelectedArtistName(artistName)
                     viewModel.setPlayerFullScreen(false)
                 }
+            )
+        }
+
+        if (isFullScreenLyricsVisible && player != null) {
+            FullScreenLyrics(
+                player = player,
+                viewModel = viewModel,
+                onDismiss = { viewModel.setFullScreenLyricsVisible(false) }
             )
         }
     }
@@ -480,7 +495,11 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
         ) {
             SongDetailsContent(
                 song = selectedSongForDetails!!,
-                artworkColors = detailsArtworkColors
+                artworkColors = detailsArtworkColors,
+                onLyricClick = {
+                    showDetailsSheet = false
+                    viewModel.setFullScreenLyricsVisible(true, compactMode = true)
+                }
             )
         }
     }

@@ -104,7 +104,7 @@ fun PlaybackShockWave(color: Color, isPlaying: Boolean) {
     }
 }
 
-private fun parseLrc(lrcContent: String?): List<LyricLine> {
+fun parseLrc(lrcContent: String?): List<LyricLine> {
     if (lrcContent.isNullOrBlank()) return emptyList()
     val lines = mutableListOf<LyricLine>()
     val lineRegex = Regex("\\[(\\d+):(\\d+)([:.]\\d+)?\\](.*)")
@@ -349,7 +349,7 @@ fun FullScreenPlayer(
     val closedValue = screenHeightPx - peekingHeightPx
     
     val scope = rememberCoroutineScope()
-    
+
     val queueOffsetY = remember { Animatable(closedValue) }
     val isQueueVisible by remember { derivedStateOf { queueOffsetY.value < closedValue - 10f } }
 
@@ -369,8 +369,20 @@ fun FullScreenPlayer(
     var currentMediaItem by remember { mutableStateOf(player.currentMediaItem) }
 
     val songs by viewModel.songs.collectAsStateWithLifecycle()
+    val allAlbums by viewModel.sortedAlbums.collectAsStateWithLifecycle()
+    
     val currentSong = remember(songs, currentMediaItem) {
         songs.find { it.id.toString() == currentMediaItem?.mediaId }
+    }
+    
+    val currentAlbum = remember(allAlbums, currentSong) {
+        allAlbums.find { it.id == currentSong?.albumId }
+    }
+
+    val effectiveArtworkUri = remember(currentMediaItem, currentSong, currentAlbum) {
+        currentAlbum?.artworkUri 
+            ?: currentMediaItem?.mediaMetadata?.artworkUri
+            ?: currentSong?.albumArtUri
     }
 
     val currentLyricIndex by remember(parsedLyrics, currentPosition) {
@@ -381,14 +393,20 @@ fun FullScreenPlayer(
     }
 
     val lyricsListState = rememberLazyListState()
-    
+
     LaunchedEffect(currentLyricIndex) {
         if (isLyricsVisible && currentLyricIndex != -1) {
             lyricsListState.animateScrollToItem(currentLyricIndex)
         }
     }
 
-    BackHandler(onBack = {
+    val isAnyOverlayVisible by remember {
+        derivedStateOf {
+            isLyricsVisible || isQueueVisible || offsetY < -1f
+        }
+    }
+
+    BackHandler(enabled = isAnyOverlayVisible, onBack = {
         if (isLyricsVisible) {
             isLyricsVisible = false
         } else if (isQueueVisible) {
@@ -424,7 +442,7 @@ fun FullScreenPlayer(
     }
 
     val extractedColors = rememberArtworkColors(
-        artworkUri = currentMediaItem?.mediaMetadata?.artworkUri,
+        artworkUri = effectiveArtworkUri,
         defaultPrimary = MaterialTheme.colorScheme.surface,
         defaultSecondary = MaterialTheme.colorScheme.primary
     )
@@ -434,7 +452,8 @@ fun FullScreenPlayer(
     } else {
         ArtworkColors(
             primary = MaterialTheme.colorScheme.surface,
-            secondary = MaterialTheme.colorScheme.primary
+            secondary = MaterialTheme.colorScheme.primary,
+            tertiary = MaterialTheme.colorScheme.primary
         )
     }
 
@@ -549,7 +568,7 @@ fun FullScreenPlayer(
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
                             AsyncImage(
-                                model = currentMediaItem?.mediaMetadata?.artworkUri,
+                                model = effectiveArtworkUri,
                                 contentDescription = null,
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -557,7 +576,7 @@ fun FullScreenPlayer(
                                 contentScale = ContentScale.Crop,
                                 error = painterResource(R.drawable.ic_launcher_foreground)
                             )
-                            
+
                             // EXPRESSIVE LYRICS OVERLAY (Uses the whole extended artwork area)
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = isLyricsVisible,
@@ -641,17 +660,31 @@ fun FullScreenPlayer(
                     horizontalAlignment = Alignment.Start,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
                 ) {
-                    Text(
-                        currentMediaItem?.mediaMetadata?.title?.toString() ?: "No Title",
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        lineHeight = 42.sp,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable {
-                            currentSong?.albumId?.let { onNavigateToAlbum(it) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            currentMediaItem?.mediaMetadata?.title?.toString() ?: "No Title",
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = (-1).sp
+                            ),
+                            maxLines = 2,
+                            lineHeight = 42.sp,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    currentSong?.albumId?.let { onNavigateToAlbum(it) }
+                                }
+                        )
+                        androidx.compose.animation.AnimatedVisibility(visible = isLyricsVisible) {
+                            IconButton(onClick = { viewModel.setFullScreenLyricsVisible(true) }) {
+                                Icon(Icons.Rounded.OpenInFull, null, tint = artworkColors.secondary)
+                            }
                         }
-                    )
+                    }
                     Text(
                         text = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist",
                         style = MaterialTheme.typography.titleLarge.copy(
@@ -709,8 +742,8 @@ fun FullScreenPlayer(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier
-                                .background(artworkColors.secondary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-                                .border(1.dp, artworkColors.secondary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                                .background(artworkColors.tertiary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                                .border(1.dp, artworkColors.tertiary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
@@ -723,13 +756,13 @@ fun FullScreenPlayer(
                                 imageVector = qualityIcon, 
                                 contentDescription = null, 
                                 modifier = Modifier.size(16.dp), 
-                                tint = artworkColors.secondary
+                                tint = artworkColors.tertiary
                             )
                             Text(
                                 text = bitrateStr.uppercase(), 
                                 style = MaterialTheme.typography.labelSmall, 
                                 fontWeight = FontWeight.Black, 
-                                color = artworkColors.secondary,
+                                color = artworkColors.tertiary,
                                 letterSpacing = 0.5.sp
                             )
                         }
@@ -747,15 +780,28 @@ fun FullScreenPlayer(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { player.seekToPrevious() }, modifier = Modifier.size(60.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(80.dp)
+                            .clip(CircleShape)
+                            .clickable { 
+                                if (player.hasPreviousMediaItem()) {
+                                    player.seekToPreviousMediaItem()
+                                } else {
+                                    player.seekTo(0)
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(Icons.Rounded.SkipPrevious, null, modifier = Modifier.size(42.dp))
                     }
 
-                    Spacer(modifier = Modifier.width(20.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
 
                     val morphProgress by animateFloatAsState(
                         targetValue = if (isPlaying) 1f else 0f,
@@ -798,9 +844,16 @@ fun FullScreenPlayer(
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(20.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
 
-                    IconButton(onClick = { player.seekToNext() }, modifier = Modifier.size(60.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(80.dp)
+                            .clip(CircleShape)
+                            .clickable { player.seekToNext() },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(Icons.Rounded.SkipNext, null, modifier = Modifier.size(42.dp))
                     }
                 }
@@ -809,7 +862,7 @@ fun FullScreenPlayer(
 
                 Surface(
                     shape = CircleShape,
-                    color = artworkColors.secondary.copy(alpha = 0.08f),
+                    color = artworkColors.tertiary.copy(alpha = 0.08f),
                     modifier = Modifier.padding(horizontal = 8.dp)
                 ) {
                     Row(
@@ -819,7 +872,7 @@ fun FullScreenPlayer(
                     ) {
                         var shuffleModeEnabledLocal by remember { mutableStateOf(player.shuffleModeEnabled) }
                         var repeatModeLocal by remember { mutableIntStateOf(player.repeatMode) }
-                        
+
                         DisposableEffect(player) {
                             val listener = object : Player.Listener {
                                 override fun onShuffleModeEnabledChanged(enabled: Boolean) { shuffleModeEnabledLocal = enabled }
@@ -830,7 +883,7 @@ fun FullScreenPlayer(
                         }
 
                         IconButton(onClick = { player.shuffleModeEnabled = !player.shuffleModeEnabled }) {
-                            Icon(Icons.Rounded.Shuffle, null, tint = if (shuffleModeEnabledLocal) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Rounded.Shuffle, null, tint = if (shuffleModeEnabledLocal) artworkColors.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         IconButton(onClick = {
                             player.repeatMode = when (repeatModeLocal) {
@@ -839,17 +892,17 @@ fun FullScreenPlayer(
                                 else -> Player.REPEAT_MODE_OFF
                             }
                         }) {
-                            Icon(if (repeatModeLocal == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, null, tint = if (repeatModeLocal != Player.REPEAT_MODE_OFF) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(if (repeatModeLocal == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, null, tint = if (repeatModeLocal != Player.REPEAT_MODE_OFF) artworkColors.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        IconButton(onClick = { 
+                        IconButton(onClick = {
                             isLyricsVisible = !isLyricsVisible
                             // loadLyricsForCurrentSong is already handled by player transition and startup
                         }) {
                             Icon(
-                                Icons.Rounded.Lyrics, 
+                                Icons.Rounded.Lyrics,
                                 null,
-                                tint = if (isLyricsVisible) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant
-                            ) 
+                                tint = if (isLyricsVisible) artworkColors.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         IconButton(onClick = { currentSong?.let { onAddClick(it) } }) { Icon(Icons.Rounded.Add, null) }
                         IconButton(onClick = { currentSong?.let { onMoreClick(it) } }) { Icon(Icons.Rounded.MoreHoriz, null) }
@@ -920,8 +973,8 @@ fun FullScreenPlayer(
                             Spacer(Modifier.height(4.dp))
                             val queueTextAlpha by animateFloatAsState(if (isQueueVisible) 1f else 0.6f)
                             Text(
-                                "Queue", 
-                                style = MaterialTheme.typography.labelLarge, 
+                                "Queue",
+                                style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = queueTextAlpha)
                             )

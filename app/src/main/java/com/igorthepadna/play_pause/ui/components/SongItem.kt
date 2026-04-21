@@ -15,9 +15,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.PlaylistAdd
-import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material3.*
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.*
@@ -53,7 +52,8 @@ fun SongItem(
     modifier: Modifier = Modifier,
     label: String? = null,
     secondaryLabel: String? = null,
-    artworkUri: android.net.Uri? = null
+    artworkUri: android.net.Uri? = null,
+    containerColor: Color? = null
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
 
@@ -74,9 +74,8 @@ fun SongItem(
         backgroundContent = {
             val direction = dismissState.dismissDirection
             val progress = dismissState.progress
-            val isSwiping = dismissState.targetValue != SwipeToDismissBoxValue.Settled
             
-            if (isSwiping && direction != null) {
+            if (progress > 0.01f && direction != null && direction != SwipeToDismissBoxValue.Settled) {
                 val color by animateColorAsState(
                     when (dismissState.targetValue) {
                         SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
@@ -88,7 +87,7 @@ fun SongItem(
                 val icon = when (direction) {
                     SwipeToDismissBoxValue.StartToEnd -> Icons.AutoMirrored.Rounded.PlaylistPlay
                     SwipeToDismissBoxValue.EndToStart -> Icons.AutoMirrored.Rounded.PlaylistAdd
-                    SwipeToDismissBoxValue.Settled -> Icons.AutoMirrored.Rounded.PlaylistPlay
+                    else -> Icons.AutoMirrored.Rounded.PlaylistPlay
                 }
 
                 Box(
@@ -112,10 +111,10 @@ fun SongItem(
         modifier = modifier.padding(vertical = 2.dp)
     ) {
         val backgroundColor by animateColorAsState(
-            targetValue = if (isPlaying) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            targetValue = when {
+                isPlaying -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                containerColor != null -> containerColor
+                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
             },
             label = "song_item_bg"
         )
@@ -132,19 +131,60 @@ fun SongItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(artworkUri ?: song.albumArtUri)
-                            .crossfade(true)
-                            .size(160)
-                            .build(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(RoundedCornerShape(12.dp)),
-                        contentScale = ContentScale.Crop,
-                        error = painterResource(R.drawable.ic_launcher_foreground)
-                    )
+                    val hasTrackInfo = (song.trackNumber > 0 || song.discNumber > 1) && label == null
+                    val finalArtworkUri = artworkUri ?: song.albumArtUri
+
+                    if (hasTrackInfo) {
+                        Surface(
+                            modifier = Modifier.size(56.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isPlaying) 
+                                MaterialTheme.colorScheme.primary 
+                            else 
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                val trackText = if (song.discNumber > 1) "${song.discNumber}.${song.trackNumber}" else song.trackNumber.toString()
+                                Text(
+                                    text = trackText,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (isPlaying) 
+                                        MaterialTheme.colorScheme.onPrimary 
+                                    else 
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else if (finalArtworkUri != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(finalArtworkUri)
+                                .crossfade(true)
+                                .size(160)
+                                .build(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Crop,
+                            error = painterResource(R.drawable.ic_launcher_foreground)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.MusicNote,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
                     
                     if (isPlaying) {
                         Box(
@@ -207,7 +247,8 @@ fun CompactSongItem(
     label: String? = null,
     secondaryLabel: String? = null,
     artworkUri: android.net.Uri? = null,
-    onPlayClick: (() -> Unit)? = null
+    onPlayClick: (() -> Unit)? = null,
+    containerColor: Color? = null
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
 
@@ -227,9 +268,8 @@ fun CompactSongItem(
         backgroundContent = {
             val direction = dismissState.dismissDirection
             val progress = dismissState.progress
-            val isSwiping = dismissState.targetValue != SwipeToDismissBoxValue.Settled
             
-            if (isSwiping && direction != null) {
+            if (progress > 0.01f && direction != null && direction != SwipeToDismissBoxValue.Settled) {
                 val color by animateColorAsState(
                     when (dismissState.targetValue) {
                         SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
@@ -262,10 +302,10 @@ fun CompactSongItem(
         modifier = modifier
     ) {
         val backgroundColor by animateColorAsState(
-            targetValue = if (isPlaying) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-            } else {
-                MaterialTheme.colorScheme.surface
+            targetValue = when {
+                isPlaying -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                containerColor != null -> containerColor
+                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
             },
             label = "compact_song_bg"
         )
@@ -282,23 +322,11 @@ fun CompactSongItem(
                 modifier = Modifier.padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Artwork or Track Number Pill
-                if (artworkUri != null) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(artworkUri)
-                            .crossfade(true)
-                            .size(80)
-                            .build(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .padding(end = 12.dp)
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(6.dp)),
-                        contentScale = ContentScale.Crop,
-                        error = painterResource(R.drawable.ic_launcher_foreground)
-                    )
-                } else if (song.trackNumber > 0) {
+                // Track Number Pill or Artwork
+                val hasTrackInfo = (song.trackNumber > 0 || song.discNumber > 1) && label == null
+                val finalArtworkUri = artworkUri ?: song.albumArtUri
+                
+                if (hasTrackInfo) {
                     Surface(
                         modifier = Modifier
                             .padding(end = 12.dp)
@@ -310,11 +338,12 @@ fun CompactSongItem(
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
+                            val trackText = if (song.discNumber > 1) "${song.discNumber}.${song.trackNumber}" else song.trackNumber.toString()
                             Text(
-                                text = song.trackNumber.toString(),
+                                text = trackText,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
+                                    fontSize = if (trackText.length > 2) 9.sp else 11.sp,
                                     letterSpacing = (-0.5).sp
                                 ),
                                 color = if (isPlaying) 
@@ -324,6 +353,21 @@ fun CompactSongItem(
                             )
                         }
                     }
+                } else if (finalArtworkUri != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(finalArtworkUri)
+                            .crossfade(true)
+                            .size(80)
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(6.dp)),
+                        contentScale = ContentScale.Crop,
+                        error = painterResource(id = R.drawable.ic_launcher_foreground)
+                    )
                 }
 
                 Column(modifier = Modifier.weight(1f)) {

@@ -133,7 +133,7 @@ fun AlbumCard(
                         // Ensure contrast in light mode
                         val hsl = FloatArray(3)
                         androidx.core.graphics.ColorUtils.colorToHSL(accentColor.toArgb(), hsl)
-                        if (hsl[2] > 0.6f) Color.Black else Color.White
+                        if (hsl[2] > 0.55f) Color.Black else Color.White
                     } else {
                         Color.White
                     }
