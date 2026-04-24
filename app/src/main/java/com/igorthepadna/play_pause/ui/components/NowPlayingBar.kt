@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
@@ -47,6 +49,7 @@ import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.LibraryFilter
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.data.Album
+import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -65,24 +68,21 @@ fun NowPlayingBar(
     onSortClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onClick: () -> Unit,
+    onNavigateToArtist: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
     onDrag: (Float) -> Unit = {},
     onDragStopped: (Float) -> Unit = {},
     viewModel: com.igorthepadna.play_pause.MainViewModel? = null
 ) {
-    var isPlaying by remember { mutableStateOf(player?.isPlaying ?: false) }
-    var currentMediaItem by remember { mutableStateOf(player?.currentMediaItem) }
-    var currentPosition by remember { mutableLongStateOf(player?.currentPosition ?: 0L) }
-    var duration by remember { mutableLongStateOf(player?.duration ?: 0L) }
-    var isDragging by remember { mutableStateOf(false) }
-    var dragAction by remember { mutableStateOf(DragAction.NONE) }
-    var totalDragOffset by remember { mutableStateOf(Offset.Zero) }
     var searchExpanded by remember { mutableStateOf(searchQuery.isNotEmpty()) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue(searchQuery)) }
+    
+    // Quick Navigation States
+    var isQuickNavActive by remember { mutableStateOf(false) }
+    var quickNavSelectedIndex by remember { mutableIntStateOf(-1) }
+    var quickNavDragY by remember { mutableFloatStateOf(0f) }
+    val haptic = LocalHapticFeedback.current
 
-    val showTimer by viewModel?.showTimerOnPlayButton?.collectAsState(false) ?: remember { mutableStateOf(false) }
-
-    val density = androidx.compose.ui.platform.LocalDensity.current
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
 
@@ -104,64 +104,17 @@ fun NowPlayingBar(
         }
     }
 
-    DisposableEffect(player) {
-        if (player == null) return@DisposableEffect onDispose {}
-        val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
-            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                currentMediaItem = mediaItem
-                duration = player.duration
-            }
-            override fun onPlaybackStateChanged(state: Int) {
-                duration = player.duration
-            }
-        }
-        player.addListener(listener)
-        onDispose { player.removeListener(listener) }
-    }
+    val currentSong by viewModel?.currentPlayingSong?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
+    val currentAlbum by viewModel?.currentPlayingAlbum?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
 
-    LaunchedEffect(isPlaying, isDragging, player) {
-        if (player == null || !isPlaying || isDragging) return@LaunchedEffect
-        while (true) {
-            currentPosition = player.currentPosition
-            duration = player.duration
-            delay(500)
-        }
-    }
-
-    val progress by animateFloatAsState(
-        targetValue = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f,
-        animationSpec = if (isDragging) snap() else spring(stiffness = Spring.StiffnessLow),
-        label = "progress_animation"
-    )
-
-    val songs by viewModel?.songs?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(emptyList<Song>()) }
-    val allAlbums by viewModel?.sortedAlbums?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(emptyList<Album>()) }
-
-    val currentSong = remember(songs, currentMediaItem) {
-        songs.find { it.id.toString() == currentMediaItem?.mediaId }
-    }
-
-    val currentAlbum = remember(allAlbums, currentSong) {
-        allAlbums.find { it.id == currentSong?.albumId }
-    }
-
-    val effectiveArtworkUri = remember(currentMediaItem, currentSong, currentAlbum) {
-        currentAlbum?.artworkUri 
-            ?: currentMediaItem?.mediaMetadata?.artworkUri
-            ?: currentSong?.albumArtUri
+    val effectiveArtworkUri = remember(currentSong, currentAlbum) {
+        currentAlbum?.artworkUri ?: currentSong?.albumArtUri
     }
 
     val artworkColors = rememberArtworkColors(
         artworkUri = effectiveArtworkUri,
         defaultPrimary = MaterialTheme.colorScheme.primaryContainer,
         defaultSecondary = MaterialTheme.colorScheme.primary
-    )
-
-    val cornerRadius by animateFloatAsState(
-        targetValue = if (isPlaying) 12f else 24f,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
-        label = "cornerRadius"
     )
 
     val filters = remember { LibraryFilter.entries }
@@ -175,14 +128,16 @@ fun NowPlayingBar(
         }
     }
 
-    LaunchedEffect(pagerState.currentPage) {
-        val newFilter = filters.getOrNull(pagerState.currentPage)
-        if (newFilter != null && newFilter != currentFilter) {
-            onFilterSelected(newFilter)
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { settledPage ->
+            val newFilter = filters.getOrNull(settledPage)
+            if (newFilter != null && newFilter != currentFilter) {
+                onFilterSelected(newFilter)
+            }
         }
     }
 
-    val hasMedia = currentMediaItem != null
+    val hasMedia = currentSong != null
 
     Box(
         modifier = modifier
@@ -192,17 +147,7 @@ fun NowPlayingBar(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(
-                    if (hasMedia) {
-                        Modifier
-                            .draggable(
-                                orientation = Orientation.Vertical,
-                                state = rememberDraggableState { delta -> onDrag(delta) },
-                                onDragStopped = { velocity -> onDragStopped(velocity) }
-                            )
-                            .clickable { onClick() }
-                    } else Modifier
-                ),
+                .align(Alignment.BottomCenter),
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
             tonalElevation = 8.dp,
             shadowElevation = 12.dp,
@@ -211,156 +156,18 @@ fun NowPlayingBar(
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 // Playback Section (Now playing song)
-                AnimatedVisibility(
-                    visible = hasMedia,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(artworkColors.secondary.copy(alpha = 0.05f))
-                            .drawBehind {
-                                if (hasMedia) {
-                                    drawRect(
-                                        color = artworkColors.secondary.copy(alpha = 0.15f),
-                                        size = size.copy(width = size.width * progress)
-                                    )
-                                }
-                            }
-                            .pointerInput(Unit) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { 
-                                        isDragging = true
-                                        totalDragOffset = Offset.Zero
-                                        dragAction = DragAction.NONE
-                                    },
-                                    onDragEnd = {
-                                        isDragging = false
-                                        when (dragAction) {
-                                            DragAction.PREVIOUS -> {
-                                                if (player?.hasPreviousMediaItem() == true) {
-                                                    player.seekToPreviousMediaItem()
-                                                } else {
-                                                    player?.seekTo(0)
-                                                }
-                                            }
-                                            DragAction.NEXT -> player?.seekToNext()
-                                            DragAction.NONE -> player?.seekTo(currentPosition)
-                                        }
-                                        dragAction = DragAction.NONE
-                                    },
-                                    onDragCancel = { 
-                                        isDragging = false 
-                                        dragAction = DragAction.NONE
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        totalDragOffset += dragAmount
-                                        
-                                        val skipThreshold = with(density) { 80.dp.toPx() }
-                                        
-                                        if (totalDragOffset.y < -skipThreshold) {
-                                            // Vertical skip mode - requires a bit of horizontal movement to select
-                                            val horizontalThreshold = with(density) { 24.dp.toPx() }
-                                            dragAction = when {
-                                                totalDragOffset.x < -horizontalThreshold -> DragAction.PREVIOUS
-                                                totalDragOffset.x > horizontalThreshold -> DragAction.NEXT
-                                                else -> DragAction.NONE
-                                            }
-                                        } else {
-                                            // Horizontal scrub mode
-                                            dragAction = DragAction.NONE
-                                            val dragFactor = 150L 
-                                            val newPos = (currentPosition + (dragAmount.x * dragFactor).toLong())
-                                                .coerceIn(0L, duration)
-                                            currentPosition = newPos
-                                        }
-                                    }
-                                )
-                            }
-                            .padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(effectiveArtworkUri)
-                                .crossfade(true)
-                                .size(160)
-                                .build(),
-                            contentDescription = "Artwork for ${currentMediaItem?.mediaMetadata?.title}",
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(12.dp)),
-                            contentScale = ContentScale.Crop,
-                            error = painterResource(R.drawable.ic_launcher_foreground)
-                        )
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = currentMediaItem?.mediaMetadata?.title?.toString() ?: "",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        val remainingTime = remember(currentPosition, duration) {
-                            val remaining = duration - currentPosition
-                            val minutes = (remaining / 1000) / 60
-                            val seconds = (remaining / 1000) % 60
-                            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(cornerRadius.dp),
-                            color = artworkColors.secondary.copy(alpha = 0.8f),
-                            modifier = Modifier
-                                .size(42.dp)
-                                .combinedClickable(
-                                    onClick = { if (isPlaying) player?.pause() else player?.play() },
-                                    onLongClick = { viewModel?.setShowTimerOnPlayButton(!showTimer) }
-                                ),
-                            tonalElevation = 4.dp
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                AnimatedContent(
-                                    targetState = showTimer,
-                                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                                    label = "play_timer_switch"
-                                ) { isTimer ->
-                                    if (isTimer) {
-                                        Text(
-                                            text = remainingTime,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = contentColorFor(artworkColors.secondary.copy(alpha = 0.8f)),
-                                            modifier = Modifier.clearAndSetSemantics { 
-                                                contentDescription = "$remainingTime remaining" 
-                                            }
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                            contentDescription = if (isPlaying) "Pause" else "Play",
-                                            modifier = Modifier.size(28.dp),
-                                            tint = contentColorFor(artworkColors.secondary.copy(alpha = 0.8f))
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                if (hasMedia) {
+                    PlaybackSection(
+                        player = player,
+                        currentSong = currentSong,
+                        currentAlbum = currentAlbum,
+                        artworkColors = artworkColors,
+                        viewModel = viewModel,
+                        onClick = onClick,
+                        onDrag = onDrag,
+                        onDragStopped = onDragStopped,
+                        onNavigateToArtist = onNavigateToArtist
+                    )
                 }
 
                 Spacer(Modifier.height(if (hasMedia) 10.dp else 0.dp))
@@ -451,12 +258,14 @@ fun NowPlayingBar(
                                         modifier = Modifier
                                             .weight(1f)
                                             .fillMaxHeight(),
-                                        contentPadding = PaddingValues(horizontal = 70.dp), // Reduced from 90.dp to allow more space for the label
+                                        contentPadding = PaddingValues(horizontal = 70.dp),
                                         pageSpacing = 0.dp,
-                                        key = { filters[it].name }
+                                        key = { filters[it].name },
+                                        userScrollEnabled = !isQuickNavActive,
+                                        beyondViewportPageCount = 1
                                     ) { page ->
                                     val filter = filters[page]
-                                    val isSelected = pagerState.currentPage == page
+                                    val isSelected by remember { derivedStateOf { pagerState.currentPage == page } }
                                     val activeColor = if (hasMedia) artworkColors.secondary else MaterialTheme.colorScheme.primary
 
                                     Box(
@@ -472,11 +281,47 @@ fun NowPlayingBar(
                                                     scaleY = scale
                                                 }
                                                 .clip(CircleShape)
-                                                .combinedClickable(
-                                                    onClick = { scope.launch { pagerState.animateScrollToPage(page) } },
-                                                    onDoubleClick = { onSortClick() },
-                                                    onLongClick = { onSortClick() }
-                                                )
+                                                .pointerInput(page) {
+                                                    detectTapGestures(
+                                                        onTap = { scope.launch { pagerState.animateScrollToPage(page) } },
+                                                        onDoubleTap = { onSortClick() }
+                                                    )
+                                                }
+                                                .pointerInput(page, isSelected) {
+                                                    if (isSelected) {
+                                                        detectDragGesturesAfterLongPress(
+                                                            onDragStart = {
+                                                                isQuickNavActive = true
+                                                                quickNavDragY = 0f
+                                                                quickNavSelectedIndex = filters.size - 1
+                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            },
+                                                            onDragEnd = {
+                                                                if (isQuickNavActive) {
+                                                                    if (quickNavSelectedIndex in filters.indices) {
+                                                                        onFilterSelected(filters[quickNavSelectedIndex])
+                                                                    }
+                                                                    isQuickNavActive = false
+                                                                }
+                                                            },
+                                                            onDragCancel = { isQuickNavActive = false },
+                                                            onDrag = { change, dragAmount ->
+                                                                change.consume()
+                                                                quickNavDragY += dragAmount.y
+                                                                val itemHeight = 56.dp.toPx()
+                                                                val dragDist = (-quickNavDragY).coerceAtLeast(0f)
+                                                                val offset = (dragDist / itemHeight).toInt()
+                                                                val nextIdx = (filters.size - 1 - offset).coerceIn(0, filters.size - 1)
+                                                                if (nextIdx != quickNavSelectedIndex) {
+                                                                    quickNavSelectedIndex = nextIdx
+                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                }
+                                                            }
+                                                        )
+                                                    } else {
+                                                        detectTapGestures(onLongPress = { onSortClick() })
+                                                    }
+                                                }
                                                 .padding(horizontal = 12.dp, vertical = 6.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.Center
@@ -524,16 +369,349 @@ fun NowPlayingBar(
             }
         }
 
-        if (hasMedia) {
-            val overlayThreshold = with(density) { 32.dp.toPx() }
-            SkipActionOverlay(
-                action = dragAction,
-                visible = isDragging && totalDragOffset.y < -overlayThreshold,
-                artworkColors = artworkColors,
+
+        QuickNavOverlay(
+            filters = filters,
+            selectedIndex = quickNavSelectedIndex,
+            visible = isQuickNavActive,
+            activeColor = artworkColors.secondary,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .offset(y = (-70).dp)
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PlaybackSection(
+    player: Player?,
+    currentSong: Song?,
+    currentAlbum: Album?,
+    artworkColors: com.igorthepadna.play_pause.utils.ArtworkColors,
+    viewModel: com.igorthepadna.play_pause.MainViewModel?,
+    onClick: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragStopped: (Float) -> Unit,
+    onNavigateToArtist: ((String) -> Unit)?
+) {
+    var isPlaying by remember { mutableStateOf(player?.isPlaying ?: false) }
+    var currentPosition by remember { mutableLongStateOf(player?.currentPosition ?: 0L) }
+    var duration by remember { mutableLongStateOf(player?.duration ?: 0L) }
+    var isDragging by remember { mutableStateOf(false) }
+    var dragAction by remember { mutableStateOf(DragAction.NONE) }
+    var totalDragOffset by remember { mutableStateOf(Offset.Zero) }
+    
+    val haptic = LocalHapticFeedback.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val showTimer by viewModel?.showTimerOnPlayButton?.collectAsState(false) ?: remember { mutableStateOf(false) }
+
+    DisposableEffect(player) {
+        if (player == null) return@DisposableEffect onDispose {}
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                duration = player.duration
+            }
+            override fun onPlaybackStateChanged(state: Int) {
+                duration = player.duration
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+
+    LaunchedEffect(isPlaying, isDragging, player) {
+        if (player == null || !isPlaying || isDragging) return@LaunchedEffect
+        while (true) {
+            currentPosition = player.currentPosition
+            duration = player.duration
+            delay(1000) 
+        }
+    }
+
+    val progress by animateFloatAsState(
+        targetValue = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f,
+        animationSpec = if (isDragging) snap() else tween(1000, easing = LinearEasing),
+        label = "progress_animation"
+    )
+
+    val effectiveArtworkUri = remember(currentSong, currentAlbum) {
+        currentAlbum?.artworkUri ?: currentSong?.albumArtUri
+    }
+
+    val cornerRadius by animateFloatAsState(
+        targetValue = if (isPlaying) 12f else 24f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
+        label = "cornerRadius"
+    )
+
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(artworkColors.secondary.copy(alpha = 0.05f))
+                .drawBehind {
+                    drawRect(
+                        color = artworkColors.secondary.copy(alpha = 0.15f),
+                        size = size.copy(width = size.width * progress)
+                    )
+                }
+                .draggable(
+                    orientation = Orientation.Vertical,
+                    state = rememberDraggableState { delta -> onDrag(delta) },
+                    onDragStopped = { velocity -> onDragStopped(velocity) }
+                )
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { }
+                )
+                .pointerInput(Unit) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { 
+                            isDragging = true
+                            totalDragOffset = Offset.Zero
+                            dragAction = DragAction.NONE
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onDragEnd = {
+                            isDragging = false
+                            when (dragAction) {
+                                DragAction.PREVIOUS -> {
+                                    if (player?.hasPreviousMediaItem() == true) {
+                                        player.seekToPreviousMediaItem()
+                                    } else {
+                                        player?.seekTo(0)
+                                    }
+                                }
+                                DragAction.NEXT -> player?.seekToNext()
+                                DragAction.NONE -> player?.seekTo(currentPosition)
+                            }
+                            dragAction = DragAction.NONE
+                        },
+                        onDragCancel = { 
+                            isDragging = false 
+                            dragAction = DragAction.NONE
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            totalDragOffset += dragAmount
+                            
+                            val skipThreshold = with(density) { 80.dp.toPx() }
+                            
+                            if (totalDragOffset.y < -skipThreshold) {
+                                val horizontalThreshold = with(density) { 24.dp.toPx() }
+                                val nextAction = when {
+                                    totalDragOffset.x < -horizontalThreshold -> DragAction.PREVIOUS
+                                    totalDragOffset.x > horizontalThreshold -> DragAction.NEXT
+                                    else -> DragAction.NONE
+                                }
+                                if (nextAction != dragAction) {
+                                    dragAction = nextAction
+                                    if (dragAction != DragAction.NONE) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    }
+                                }
+                            } else {
+                                dragAction = DragAction.NONE
+                                val dragFactor = 150L 
+                                val newPos = (currentPosition + (dragAmount.x * dragFactor).toLong())
+                                    .coerceIn(0L, duration)
+                                currentPosition = newPos
+                            }
+                        }
+                    )
+                }
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(effectiveArtworkUri)
+                    .crossfade(true)
+                    .size(160)
+                    .build(),
+                contentDescription = "Artwork",
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .offset(y = (-110).dp)
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+                contentScale = ContentScale.Crop,
+                error = painterResource(R.drawable.ic_launcher_foreground)
             )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = currentSong?.title ?: "",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val artistName = currentSong?.artist ?: "Unknown"
+                val artists = remember(artistName) { MusicRepository.splitArtists(artistName) }
+                
+                if (artists.size > 1) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        artists.forEachIndexed { index, artist ->
+                            Text(
+                                text = artist,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = if (onNavigateToArtist != null) {
+                                    Modifier.clickable { onNavigateToArtist(artist) }
+                                } else Modifier
+                            )
+                            if (index < artists.size - 1) {
+                                Text(
+                                    text = " & ",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = artistName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            val remainingTime = remember(currentPosition, duration) {
+                val remaining = duration - currentPosition
+                val minutes = (remaining / 1000) / 60
+                val seconds = (remaining / 1000) % 60
+                String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+            }
+
+            Surface(
+                shape = RoundedCornerShape(cornerRadius.dp),
+                color = artworkColors.secondary.copy(alpha = 0.8f),
+                modifier = Modifier
+                    .size(42.dp)
+                    .combinedClickable(
+                        onClick = { if (isPlaying) player?.pause() else player?.play() },
+                        onLongClick = { 
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel?.setShowTimerOnPlayButton(!showTimer) 
+                        }
+                    ),
+                tonalElevation = 4.dp
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    AnimatedContent(
+                        targetState = showTimer,
+                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                        label = "play_timer_switch"
+                    ) { isTimer ->
+                        if (isTimer) {
+                            Text(
+                                text = remainingTime,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = contentColorFor(artworkColors.secondary.copy(alpha = 0.8f)),
+                                modifier = Modifier.clearAndSetSemantics { 
+                                    contentDescription = "$remainingTime remaining" 
+                                }
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                modifier = Modifier.size(28.dp),
+                                tint = contentColorFor(artworkColors.secondary.copy(alpha = 0.8f))
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        val overlayThreshold = with(density) { 32.dp.toPx() }
+        SkipActionOverlay(
+            action = dragAction,
+            visible = isDragging && totalDragOffset.y < -overlayThreshold,
+            artworkColors = artworkColors,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = (-110).dp)
+        )
+    }
+}
+
+@Composable
+private fun QuickNavOverlay(
+    filters: List<LibraryFilter>,
+    selectedIndex: Int,
+    visible: Boolean,
+    activeColor: Color,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom) + scaleIn(initialScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
+        exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom) + scaleOut(targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
+        modifier = modifier
+    ) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.98f),
+            tonalElevation = 12.dp,
+            shadowElevation = 16.dp,
+            border = BorderStroke(1.dp, activeColor.copy(alpha = 0.3f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(8.dp)
+                    .width(IntrinsicSize.Max),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                filters.forEachIndexed { index, filter ->
+                    val isHighlighted = index == selectedIndex
+                    
+                    val itemColor = if (isHighlighted) activeColor else MaterialTheme.colorScheme.onSurface
+                    val bgColor = if (isHighlighted) activeColor.copy(alpha = 0.15f) else Color.Transparent
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .clip(CircleShape)
+                            .background(bgColor)
+                            .padding(horizontal = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            filter.icon, 
+                            null, 
+                            modifier = Modifier.size(24.dp).graphicsLayer {
+                                scaleX = if (isHighlighted) 1.2f else 1f
+                                scaleY = if (isHighlighted) 1.2f else 1f
+                            },
+                            tint = itemColor
+                        )
+                        Text(
+                            filter.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = if (isHighlighted) FontWeight.Black else FontWeight.Bold,
+                            color = itemColor,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }

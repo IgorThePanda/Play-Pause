@@ -1,10 +1,14 @@
 package com.igorthepadna.play_pause.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -12,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -30,7 +35,8 @@ fun ArtistCard(
     artist: Artist,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    columns: Int = 2
+    columns: Int = 2,
+    isPlaying: Boolean = false
 ) {
     val showMetadata = columns < 4
     val showDetails = columns <= 2
@@ -44,6 +50,7 @@ fun ArtistCard(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = androidx.compose.material3.ripple()
             )
+            .background(if (isPlaying) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else Color.Transparent)
             .padding(if (showMetadata) 8.dp else 0.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -53,6 +60,7 @@ fun ArtistCard(
                 .fillMaxWidth(),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = if (isPlaying) BorderStroke(3.dp, MaterialTheme.colorScheme.primary) else null,
             tonalElevation = 2.dp
         ) {
             val model = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri
@@ -63,8 +71,10 @@ fun ArtistCard(
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
                             .data(model)
-                            .crossfade(true)
+                            .crossfade(100)
                             .size(400) // Optimization: Loaded at fixed size for the grid
+                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                             .build(),
                         contentDescription = artist.name,
                         modifier = Modifier.fillMaxSize(),
@@ -76,6 +86,22 @@ fun ArtistCard(
                 
                 if (model == null || isError) {
                     ArtistPlaceholder(artist.name)
+                }
+
+                if (isPlaying) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.3f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.GraphicEq,
+                            contentDescription = "Playing",
+                            tint = Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
                 }
             }
         }

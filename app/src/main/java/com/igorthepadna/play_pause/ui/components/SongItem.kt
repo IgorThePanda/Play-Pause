@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.igorthepadna.play_pause.R
+import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.data.Playlist
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.utils.ArtworkColors
@@ -50,6 +51,7 @@ fun SongItem(
     onSwipePlayNext: () -> Unit,
     onSwipeAddToPlaylist: () -> Unit,
     modifier: Modifier = Modifier,
+    onNavigateToArtist: ((String) -> Unit)? = null,
     label: String? = null,
     secondaryLabel: String? = null,
     artworkUri: android.net.Uri? = null,
@@ -160,8 +162,10 @@ fun SongItem(
                         AsyncImage(
                             model = ImageRequest.Builder(LocalContext.current)
                                 .data(finalArtworkUri)
-                                .crossfade(true)
+                                .crossfade(100)
                                 .size(160)
+                                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                                 .build(),
                             contentDescription = null,
                             modifier = Modifier
@@ -213,11 +217,33 @@ fun SongItem(
                         overflow = TextOverflow.Ellipsis,
                         color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
                     )
-                    Text(
-                        text = secondaryLabel ?: song.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    val artistText = secondaryLabel ?: song.artist
+                    val artists = remember(artistText) { MusicRepository.splitArtists(artistText) }
+                    
+                    if (artists.size > 1) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            artists.forEachIndexed { index, artist ->
+                                Text(
+                                    text = artist,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (index < artists.size - 1) {
+                                    Text(
+                                        text = " & ",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = artistText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 
                 IconButton(onClick = onDetailsClick) {
@@ -242,6 +268,7 @@ fun CompactSongItem(
     onSwipePlayNext: () -> Unit,
     onSwipeAddToPlaylist: () -> Unit,
     modifier: Modifier = Modifier,
+    onNavigateToArtist: ((String) -> Unit)? = null,
     showArtist: Boolean = true,
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp),
     label: String? = null,
@@ -357,8 +384,10 @@ fun CompactSongItem(
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
                             .data(finalArtworkUri)
-                            .crossfade(true)
+                            .crossfade(100)
                             .size(80)
+                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                             .build(),
                         contentDescription = null,
                         modifier = Modifier
@@ -388,8 +417,9 @@ fun CompactSongItem(
                                 fontWeight = FontWeight.Bold
                             )
                             if (showArtist) {
+                                val artistText = secondaryLabel ?: song.artist
                                 Text(
-                                    text = " • ${secondaryLabel ?: song.artist}",
+                                    text = " • $artistText",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                     maxLines = 1,
@@ -398,13 +428,36 @@ fun CompactSongItem(
                             }
                         }
                     } else if (showArtist) {
-                        Text(
-                            text = secondaryLabel ?: song.artist,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        val artistText = secondaryLabel ?: song.artist
+                        val artists = remember(artistText) { MusicRepository.splitArtists(artistText) }
+                        if (artists.size > 1) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                artists.forEachIndexed { index, artist ->
+                                    Text(
+                                        text = artist,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (index < artists.size - 1) {
+                                        Text(
+                                            text = " & ",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = artistText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
 
@@ -489,12 +542,34 @@ fun PlaylistSelectionSheet(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = song.artist,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = artworkColors.secondary,
-                    fontWeight = FontWeight.Bold
-                )
+                val artists = remember(song.artist) { MusicRepository.splitArtists(song.artist) }
+                if (artists.size > 1) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        artists.forEachIndexed { index, artist ->
+                            Text(
+                                text = artist,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = artworkColors.secondary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (index < artists.size - 1) {
+                                Text(
+                                    text = " & ",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = artworkColors.secondary.copy(alpha = 0.5f),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = song.artist,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = artworkColors.secondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 

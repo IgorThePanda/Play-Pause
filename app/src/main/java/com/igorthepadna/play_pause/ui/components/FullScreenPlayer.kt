@@ -49,6 +49,7 @@ import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.SquigglySlider
 import com.igorthepadna.play_pause.data.LyricLine
 import com.igorthepadna.play_pause.data.LyricWord
+import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.formatDuration
@@ -355,7 +356,11 @@ fun FullScreenPlayer(
 
     var isLyricsVisible by remember { mutableStateOf(false) }
     val rawLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
-    val parsedLyrics = remember(rawLyrics) { parseLrc(rawLyrics) }
+    
+    // Lazy parsing: Only parse lyrics if the player is active or becoming active
+    val parsedLyrics = remember(rawLyrics, offsetY) { 
+        if (offsetY != 0f) parseLrc(rawLyrics) else emptyList()
+    }
     
     // Lyric Editor States
     val lyricFontSize by viewModel.lyricFontSize.collectAsStateWithLifecycle()
@@ -694,7 +699,13 @@ fun FullScreenPlayer(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.clickable {
-                            currentMediaItem?.mediaMetadata?.artist?.toString()?.let { onNavigateToArtist(it) }
+                            val artistName = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist"
+                            val splitArtists = MusicRepository.splitArtists(artistName)
+                            if (splitArtists.size > 1) {
+                                viewModel.showArtistSelection(splitArtists)
+                            } else {
+                                onNavigateToArtist(artistName)
+                            }
                         }
                     )
                 }

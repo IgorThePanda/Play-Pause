@@ -28,18 +28,20 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.media3.common.Player
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.data.Album
+import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
+import androidx.media3.common.Player
 
 @Composable
 fun AlbumDetailView(
     album: Album,
-    player: Player?,
+    currentPlayingId: Long,
     onBack: () -> Unit,
     onNavigateToArtist: (String) -> Unit,
     onSongDetails: (Song) -> Unit,
@@ -61,19 +63,6 @@ fun AlbumDetailView(
             2 -> album.songs.sortedByDescending { it.duration }
             else -> album.songs
         }
-    }
-
-    var currentPlayingId by remember { mutableLongStateOf(player?.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L) }
-    
-    DisposableEffect(player) {
-        if (player == null) return@DisposableEffect onDispose {}
-        val listener = object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                currentPlayingId = mediaItem?.mediaId?.toLongOrNull() ?: -1L
-            }
-        }
-        player.addListener(listener)
-        onDispose { player.removeListener(listener) }
     }
 
     val bannerThresholdPx = with(LocalDensity.current) { 500.dp.toPx() }
@@ -142,6 +131,7 @@ fun AlbumDetailView(
                                     onDetailsClick = { onSongDetails(song) },
                                     onSwipePlayNext = { onSwipePlayNext(song) },
                                     onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                                    onNavigateToArtist = onNavigateToArtist,
                                     showArtist = song.artist != album.artist,
                                     shape = RoundedCornerShape(16.dp),
                                     artworkUri = album.artworkUri,
@@ -160,7 +150,7 @@ fun AlbumDetailView(
             exit = fadeOut() + slideOutVertically { -it / 2 },
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp)
         ) {
-            PillBanner(album = album, artworkColors = artworkColors, onBack = onBack)
+            PillBanner(album = album, artworkColors = artworkColors, onBack = onBack, onNavigateToArtist = onNavigateToArtist)
         }
     }
 }
@@ -197,105 +187,88 @@ fun AlbumLargeHeader(
             )
 
             // Layer 2: Pills with aligned background blur
-            
-            // Back Button Pill (Top Left) - Moved inside artwork
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(12.dp)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
-                    .clickable { onBack() }
-            ) {
-                Box(modifier = Modifier.matchParentSize()) {
-                    AsyncImage(
-                        model = album.artworkUri,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize().blur(20.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)))
-                }
-                Icon(
-                    Icons.AutoMirrored.Rounded.ArrowBack, 
-                    "Back", 
-                    tint = Color.White, 
-                    modifier = Modifier.align(Alignment.Center).size(20.dp)
-                )
-            }
-
-            // Song Count Pill (Top Right)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(12.dp)
-                    .height(32.dp)
-                    .clip(CircleShape)
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
-            ) {
-                Box(modifier = Modifier.matchParentSize()) {
-                    AsyncImage(
-                        model = album.artworkUri,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize().blur(20.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)))
-                }
-
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp).fillMaxHeight(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(Icons.Rounded.MusicNote, null, tint = Color.White, modifier = Modifier.size(14.dp))
-                    Text(
-                        text = "${album.songs.size}",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White
-                    )
-                }
-            }
-
-            // Info Content (Title & Artist) - Floating on artwork
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    .fillMaxSize()
                     .padding(16.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
-                    .height(IntrinsicSize.Min)
             ) {
-                Box(modifier = Modifier.matchParentSize()) {
+                // Back Button Pill
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable { onBack() }
+                ) {
                     AsyncImage(
                         model = album.artworkUri,
                         contentDescription = null,
-                        modifier = Modifier.fillMaxSize().blur(20.dp),
+                        modifier = Modifier
+                            .matchParentSize()
+                            .blur(40.dp),
                         contentScale = ContentScale.Crop
                     )
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)))
+                    Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.2f)))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Back",
+                        modifier = Modifier.align(Alignment.Center),
+                        tint = Color.White
+                    )
                 }
 
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text(
-                        text = album.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
+                // Info Pill (Bottom)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                ) {
+                    AsyncImage(
+                        model = album.artworkUri,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .matchParentSize()
+                            .blur(50.dp),
+                        contentScale = ContentScale.Crop
                     )
-                    Text(
-                        text = album.artist,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.8f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable { onNavigateToArtist(album.artist) }
-                    )
+                    Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.3f)))
+                    
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text(
+                            text = album.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val artists = remember(album.artist) { MusicRepository.splitArtists(album.artist) }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            artists.forEachIndexed { index, artistName ->
+                                Text(
+                                    text = artistName,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.clickable { onNavigateToArtist(artistName) }
+                                )
+                                if (index < artists.size - 1) {
+                                    Text(
+                                        text = " & ",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White.copy(alpha = 0.4f)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -328,29 +301,37 @@ fun AlbumLargeHeader(
             Button(
                 onClick = onShuffle,
                 modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(26.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = artworkColors.secondary.copy(alpha = 0.15f),
+                    containerColor = artworkColors.secondary.copy(alpha = 0.1f),
                     contentColor = artworkColors.secondary
-                )
+                ),
+                contentPadding = PaddingValues(0.dp)
             ) {
-                Icon(Icons.Rounded.Shuffle, null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Shuffle", fontWeight = FontWeight.ExtraBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Shuffle, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Shuffle", fontWeight = FontWeight.Black)
+                }
             }
 
-            FloatingActionButton(
+            Button(
                 onClick = onPlay,
-                containerColor = artworkColors.secondary,
-                contentColor = contentColorFor(artworkColors.secondary),
-                shape = CircleShape,
-                modifier = Modifier.size(56.dp)
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = artworkColors.secondary,
+                    contentColor = contentColorFor(artworkColors.secondary)
+                ),
+                contentPadding = PaddingValues(0.dp)
             ) {
-                Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(32.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Play", fontWeight = FontWeight.Black)
+                }
             }
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
@@ -358,40 +339,81 @@ fun AlbumLargeHeader(
 fun PillBanner(
     album: Album,
     artworkColors: ArtworkColors,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToArtist: (String) -> Unit
 ) {
     Surface(
-        modifier = Modifier.padding(horizontal = 16.dp).height(48.dp).fillMaxWidth(),
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth()
+            .height(64.dp),
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp).copy(alpha = 0.95f),
-        tonalElevation = 6.dp,
-        shadowElevation = 8.dp,
-        border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.2f))
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 8.dp,
+        shadowElevation = 12.dp,
+        border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.1f))
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", modifier = Modifier.size(20.dp))
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, null)
             }
-            Spacer(modifier = Modifier.width(4.dp))
-            AsyncImage(
-                model = album.artworkUri,
-                contentDescription = null,
-                modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Crop
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = album.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(modifier = Modifier.width(48.dp))
+            
+            Surface(
+                modifier = Modifier.size(44.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                AsyncImage(
+                    model = album.artworkUri,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop
+                )
+            }
+            
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp)
+            ) {
+                Text(
+                    text = album.title,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val artists = remember(album.artist) { MusicRepository.splitArtists(album.artist) }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    artists.forEachIndexed { index, artistName ->
+                        Text(
+                            text = artistName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.clickable { onNavigateToArtist(artistName) }
+                        )
+                        if (index < artists.size - 1) {
+                            Text(
+                                text = " & ",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+                }
+            }
+            
+            IconButton(
+                onClick = { /* Add to playlist */ },
+                modifier = Modifier.background(artworkColors.secondary.copy(alpha = 0.1f), CircleShape)
+            ) {
+                Icon(Icons.Rounded.Add, null, tint = artworkColors.secondary, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

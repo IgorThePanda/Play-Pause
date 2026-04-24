@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.R
+import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.formatDuration
@@ -33,7 +34,8 @@ fun SongDetailsContent(
     song: Song,
     artworkColors: ArtworkColors,
     onLyricClick: () -> Unit = {},
-    onFolderClick: (String) -> Unit = {}
+    onFolderClick: (String) -> Unit = {},
+    onNavigateToArtist: ((String) -> Unit)? = null
 ) {
     var genre by remember { mutableStateOf("Loading...") }
     var bitrate by remember { mutableStateOf("Loading...") }
@@ -111,12 +113,36 @@ fun SongDetailsContent(
                     overflow = TextOverflow.Ellipsis,
                     letterSpacing = (-1).sp
                 )
-                Text(
-                    text = song.artist,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = artworkColors.secondary,
-                    fontWeight = FontWeight.Bold
-                )
+                val artists = remember(song.artist) { MusicRepository.splitArtists(song.artist) }
+                if (artists.size > 1) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        artists.forEachIndexed { index, artist ->
+                            Text(
+                                text = artist,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = artworkColors.secondary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = if (onNavigateToArtist != null) Modifier.clickable { onNavigateToArtist(artist) } else Modifier
+                            )
+                            if (index < artists.size - 1) {
+                                Text(
+                                    text = " & ",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = artworkColors.secondary.copy(alpha = 0.5f),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = song.artist,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = artworkColors.secondary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = if (onNavigateToArtist != null) Modifier.clickable { onNavigateToArtist(song.artist) } else Modifier
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(16.dp))

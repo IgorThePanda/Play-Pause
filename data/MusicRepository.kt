@@ -39,7 +39,8 @@ class MusicRepository(private val context: Context) {
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.YEAR
+            MediaStore.Audio.Media.YEAR,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) MediaStore.Audio.Media.ALBUM_ARTIST else MediaStore.Audio.Media.ARTIST
         )
 
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -63,6 +64,9 @@ class MusicRepository(private val context: Context) {
             val trackColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
             val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val yearColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
+            val albumArtistColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ARTIST)
+            } else -1
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
@@ -77,6 +81,7 @@ class MusicRepository(private val context: Context) {
                 val trackNumber = cursor.getInt(trackColumn)
                 val albumId = cursor.getLong(albumIdColumn)
                 val year = cursor.getInt(yearColumn)
+                val albumArtist = if (albumArtistColumn != -1) cursor.getString(albumArtistColumn) else null
 
                 val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
                 val albumArtUri = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
@@ -96,6 +101,7 @@ class MusicRepository(private val context: Context) {
                     trackNumber = trackNumber,
                     albumId = albumId,
                     year = year,
+                    albumArtist = albumArtist,
                     bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null
                 )
                 
@@ -153,25 +159,90 @@ class MusicRepository(private val context: Context) {
     suspend fun getArtists(songs: List<Song>, albums: List<Album>): List<Artist> = withContext(Dispatchers.IO) {
         if (cachedArtists != null && songs === cachedSongs && albums === cachedAlbums) return@withContext cachedArtists!!
 
+        val artistMap = mutableMapOf<String, MutableList<Song>>()
+        
+        songs.forEach { song ->
+            val artists = splitArtists(song.artist)
+            artists.forEach { name ->
+                artistMap.getOrPut(name) { mutableListOf() }.add(song)
+            }
+        }
+
         val albumMap = albums.groupBy { it.artist }
         
-        val artists = songs.groupBy { it.artist }.map { (name, artistSongs) ->
-            val artistAlbums = albumMap[name] ?: emptyList()
+        val artists = artistMap.map { (name, artistSongs) ->
+            val artistAlbums = albumMap[name] ?: albums.filter { it.songs.any { s -> splitArtists(s.artist).contains(name) } }
             
-            // Search for artist cover with a more efficient strategy
+            // Search for artist cover and info
             val thumbnailUri = findArtistCover(name, artistSongs) ?: artistAlbums.firstOrNull { it.artworkUri != null }?.artworkUri
+            val artistInfo = findArtistInfo(name, artistSongs)
 
             Artist(
                 name = name,
-                albums = artistAlbums,
+                albums = artistAlbums.distinctBy { it.id },
                 songs = artistSongs,
                 albumCount = artistAlbums.size,
                 trackCount = artistSongs.size,
-                thumbnailUri = thumbnailUri
+                thumbnailUri = thumbnailUri,
+                info = artistInfo
             )
-        }
+        }.sortedBy { it.name.lowercase() }
+        
         cachedArtists = artists
         artists
+    }
+
+    private fun splitArtists(artistString: String?): List<String> {
+        if (artistString == null || artistString.isBlank()) return listOf("Unknown Artist")
+        
+        val delimiters = listOf(" & ", " feat. ", " ft. ", ", ", " Feat. ", " Ft. ", " / ", " with ")
+        var result = listOf(artistString)
+        
+        delimiters.forEach { delimiter ->
+            result = result.flatMap { part ->
+                part.split(delimiter)
+            }
+        }
+        
+        return result.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+    }
+
+    private fun findArtistInfo(artistName: String, songs: List<Song>): String? {
+        val artistLower = artistName.lowercase()
+        val checkedDirs = mutableSetOf<String>()
+
+        for (song in songs.take(3)) {
+            var currentDir = File(song.path).parentFile
+            var depth = 0
+            while (currentDir != null && depth < 2) {
+                val dirPath = currentDir.absolutePath
+                if (checkedDirs.add(dirPath)) {
+                    // 1. Try artist info.txt directly
+                    val infoFile = File(currentDir, "artist info.txt")
+                    if (infoFile.exists()) {
+                        return try {
+                            infoFile.readText().trim()
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    
+                    // 2. Try [artist name].txt directly
+                    val artistSpecificFile = File(currentDir, "$artistLower.txt")
+                    if (artistSpecificFile.exists()) {
+                        return try {
+                            artistSpecificFile.readText().trim()
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                }
+                currentDir = currentDir.parentFile
+                depth++
+                if (dirPath.lowercase().endsWith("/music") || dirPath.lowercase().endsWith("/download")) break
+            }
+        }
+        return null
     }
 
     private fun findArtistCover(artistName: String, songs: List<Song>): Uri? {

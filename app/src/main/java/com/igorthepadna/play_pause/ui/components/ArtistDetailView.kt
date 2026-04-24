@@ -48,6 +48,9 @@ import com.igorthepadna.play_pause.utils.verticalScrollbar
 @Composable
 fun ArtistDetailView(
     artist: Artist,
+    currentPlayingId: Long,
+    currentPlayingSong: Song?,
+    albumArtMap: Map<Long, android.net.Uri?>,
     onBack: () -> Unit,
     onAlbumClick: (Album) -> Unit,
     onPlayArtist: (List<Song>, Int, Boolean?) -> Unit = { _, _, _ -> },
@@ -55,10 +58,10 @@ fun ArtistDetailView(
     onSongDetailsClick: (Song) -> Unit = {},
     onPlayAllSongs: (List<Song>, Int, Boolean?) -> Unit = { _, _, _ -> },
     onPlaySpecificSongs: (List<Song>, Int, Boolean?) -> Unit = { _, _, _ -> },
+    onNavigateToArtist: (String) -> Unit = {},
     onExpandCategory: (String) -> Unit = {},
     viewModel: MainViewModel? = null
 ) {
-    val albumArtMap by viewModel?.albumArtMap?.collectAsStateWithLifecycle(emptyMap()) ?: remember { mutableStateOf(emptyMap()) }
     val gridState = rememberLazyGridState()
     val artworkColors = rememberArtworkColors(
         artworkUri = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri,
@@ -70,11 +73,15 @@ fun ArtistDetailView(
         artist.albums.partition { it.songs.size > 2 }
     }
 
-    val unreleasedSongs = remember(artist.songs) {
-        artist.songs.filter { song ->
+    val unreleasedSongs = remember(artist.songs, artist.featuredSongs) {
+        (artist.songs + artist.featuredSongs).filter { song ->
             val folderName = song.path.substringBeforeLast('/').substringAfterLast('/')
             folderName.startsWith("XXXX", ignoreCase = true)
         }
+    }
+
+    val allSongs = remember(artist.songs, artist.featuredSongs) {
+        (artist.songs + artist.featuredSongs).sortedByDescending { it.dateAdded }
     }
 
     val bannerThresholdPx = with(LocalDensity.current) { 200.dp.toPx() }
@@ -107,7 +114,7 @@ fun ArtistDetailView(
                 ArtistHighFidelityHeader(
                     artist = artist,
                     onBack = onBack,
-                    onPlay = { onPlayArtist(artist.songs, 0, false) }
+                    onPlay = { onPlayArtist(allSongs, 0, false) }
                 )
             }
 
@@ -121,12 +128,15 @@ fun ArtistDetailView(
                             contentPadding = PaddingValues(bottom = 4.dp)
                         ) {
                             lazyItems(mainAlbums.take(5)) { album ->
+                                val isPlaying = album.id == currentPlayingSong?.albumId
                                 AlbumCard(
                                     album = album,
                                     onClick = { onAlbumClick(album) },
                                     onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
+                                    onNavigateToArtist = onNavigateToArtist,
                                     modifier = Modifier.width(180.dp),
-                                    columns = 2
+                                    columns = 2,
+                                    isPlaying = isPlaying
                                 )
                             }
                         }
@@ -144,12 +154,15 @@ fun ArtistDetailView(
                             contentPadding = PaddingValues(bottom = 4.dp)
                         ) {
                             lazyItems(singles.take(5)) { album ->
+                                val isPlaying = album.id == currentPlayingSong?.albumId
                                 AlbumCard(
                                     album = album,
                                     onClick = { onAlbumClick(album) },
                                     onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
+                                    onNavigateToArtist = onNavigateToArtist,
                                     modifier = Modifier.width(180.dp),
-                                    columns = 2
+                                    columns = 2,
+                                    isPlaying = isPlaying
                                 )
                             }
                         }
@@ -178,11 +191,48 @@ fun ArtistDetailView(
                                 val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                                 CompactSongItem(
                                     song = song,
-                                    isPlaying = false,
-                                    onClick = { onSongClick(song) },
+                                    isPlaying = song.id == currentPlayingId,
+                                    onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
                                     onDetailsClick = { onSongDetailsClick(song) },
                                     onSwipePlayNext = {},
                                     onSwipeAddToPlaylist = {},
+                                    onNavigateToArtist = onNavigateToArtist,
+                                    artworkUri = albumArt,
+                                    containerColor = Color.Transparent
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Featured Section ---
+            if (artist.featuredSongs.isNotEmpty()) {
+                item(span = { GridItemSpan(2) }) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                    ) {
+                        SectionHeader(title = "Featured In", onExpandClick = { onExpandCategory("Featured In") })
+                        
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                .padding(8.dp)
+                        ) {
+                            artist.featuredSongs.take(5).forEach { song ->
+                                val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                                CompactSongItem(
+                                    song = song,
+                                    isPlaying = song.id == currentPlayingId,
+                                    onClick = { onPlaySpecificSongs(artist.featuredSongs, artist.featuredSongs.indexOf(song), false) },
+                                    onDetailsClick = { onSongDetailsClick(song) },
+                                    onSwipePlayNext = {},
+                                    onSwipeAddToPlaylist = {},
+                                    onNavigateToArtist = onNavigateToArtist,
                                     artworkUri = albumArt,
                                     containerColor = Color.Transparent
                                 )
@@ -217,7 +267,7 @@ fun ArtistDetailView(
                         }
 
                         IconButton(
-                            onClick = { onPlayAllSongs(artist.songs, 0, true) },
+                            onClick = { onPlayAllSongs(allSongs, 0, true) },
                             modifier = Modifier
                                 .size(36.dp)
                                 .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
@@ -238,15 +288,16 @@ fun ArtistDetailView(
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                             .padding(8.dp)
                     ) {
-                        artist.songs.take(10).forEach { song ->
+                        allSongs.take(10).forEach { song ->
                             val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                             CompactSongItem(
                                 song = song,
-                                isPlaying = false, 
-                                onClick = { onSongClick(song) },
+                                isPlaying = song.id == currentPlayingId,
+                                onClick = { onPlaySpecificSongs(allSongs, allSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
                                 artworkUri = albumArt,
                                 containerColor = Color.Transparent
                             )
@@ -278,6 +329,7 @@ fun CategoryDetailView(
     mainAlbums: List<Album>,
     singles: List<Album>,
     unreleasedSongs: List<Song>,
+    featuredSongs: List<Song> = emptyList(),
     viewMode: CategoryViewMode,
     columns: Int,
     onViewModeChange: (CategoryViewMode) -> Unit,
@@ -286,6 +338,7 @@ fun CategoryDetailView(
     onAlbumClick: (Album) -> Unit,
     onSongClick: (Song) -> Unit,
     onSongDetailsClick: (Song) -> Unit,
+    onNavigateToArtist: (String) -> Unit,
     onPlayAllSongs: (List<Song>, Int, Boolean?) -> Unit,
     onPlaySpecificSongs: (List<Song>, Int, Boolean?) -> Unit,
     albumArtMap: Map<Long, android.net.Uri?> = emptyMap()
@@ -371,6 +424,7 @@ fun CategoryDetailView(
                                 album = album,
                                 onClick = { onAlbumClick(album) },
                                 onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
+                                onNavigateToArtist = onNavigateToArtist,
                                 columns = columns
                             )
                             CategoryViewMode.COMPACT -> CompactSongItem(
@@ -380,6 +434,7 @@ fun CategoryDetailView(
                                 onDetailsClick = {},
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
                                 label = album.title,
                                 secondaryLabel = album.artist,
                                 artworkUri = album.artworkUri,
@@ -392,6 +447,7 @@ fun CategoryDetailView(
                                 onDetailsClick = {},
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
                                 label = album.title,
                                 secondaryLabel = album.artist,
                                 artworkUri = album.artworkUri
@@ -406,6 +462,7 @@ fun CategoryDetailView(
                                 album = album,
                                 onClick = { onAlbumClick(album) },
                                 onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
+                                onNavigateToArtist = onNavigateToArtist,
                                 columns = columns
                             )
                             CategoryViewMode.COMPACT -> CompactSongItem(
@@ -415,6 +472,7 @@ fun CategoryDetailView(
                                 onDetailsClick = {},
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
                                 label = album.title,
                                 secondaryLabel = album.artist,
                                 artworkUri = album.artworkUri,
@@ -427,6 +485,7 @@ fun CategoryDetailView(
                                 onDetailsClick = {},
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
                                 label = album.title,
                                 secondaryLabel = album.artist,
                                 artworkUri = album.artworkUri
@@ -448,15 +507,17 @@ fun CategoryDetailView(
                                 ),
                                 onClick = { onSongClick(song) },
                                 onPlayClick = { onSongClick(song) },
+                                onNavigateToArtist = onNavigateToArtist,
                                 columns = columns
                             )
                             CategoryViewMode.COMPACT -> CompactSongItem(
                                 song = song,
                                 isPlaying = false,
-                                onClick = { onSongClick(song) },
+                                onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
                                 showArtist = false,
                                 onPlayClick = { onSongClick(song) },
                                 artworkUri = albumArt
@@ -464,17 +525,18 @@ fun CategoryDetailView(
                             CategoryViewMode.DETAILED -> SongItem(
                                 song = song,
                                 isPlaying = false,
-                                onClick = { onSongClick(song) },
+                                onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
                                 artworkUri = albumArt
                             )
                         }
                     }
                 }
-                "All Songs" -> {
-                    gridItems(artist.songs) { song ->
+                "Featured In" -> {
+                    gridItems(featuredSongs) { song ->
                         val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                         when (viewMode) {
                             CategoryViewMode.GRID -> AlbumCard(
@@ -487,26 +549,72 @@ fun CategoryDetailView(
                                 ),
                                 onClick = { onSongClick(song) },
                                 onPlayClick = { onSongClick(song) },
+                                onNavigateToArtist = onNavigateToArtist,
                                 columns = columns
                             )
                             CategoryViewMode.COMPACT -> CompactSongItem(
                                 song = song,
                                 isPlaying = false,
-                                onClick = { onSongClick(song) },
+                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
                                 showArtist = true,
-                                onPlayClick = { onSongClick(song) },
+                                onPlayClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
                                 artworkUri = albumArt
                             )
                             CategoryViewMode.DETAILED -> SongItem(
                                 song = song,
                                 isPlaying = false,
-                                onClick = { onSongClick(song) },
+                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
+                                artworkUri = albumArt
+                            )
+                        }
+                    }
+                }
+                "All Songs" -> {
+                    val allSongs = (artist.songs + artist.featuredSongs).sortedByDescending { it.dateAdded }
+                    gridItems(allSongs) { song ->
+                        val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                        when (viewMode) {
+                            CategoryViewMode.GRID -> AlbumCard(
+                                album = Album(
+                                    id = song.albumId,
+                                    title = song.title,
+                                    artist = song.artist,
+                                    artworkUri = albumArt,
+                                    songs = listOf(song)
+                                ),
+                                onClick = { onSongClick(song) },
+                                onPlayClick = { onSongClick(song) },
+                                onNavigateToArtist = onNavigateToArtist,
+                                columns = columns
+                            )
+                            CategoryViewMode.COMPACT -> CompactSongItem(
+                                song = song,
+                                isPlaying = false,
+                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
+                                onDetailsClick = { onSongDetailsClick(song) },
+                                onSwipePlayNext = {},
+                                onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
+                                showArtist = true,
+                                onPlayClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
+                                artworkUri = albumArt
+                            )
+                            CategoryViewMode.DETAILED -> SongItem(
+                                song = song,
+                                isPlaying = false,
+                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
+                                onDetailsClick = { onSongDetailsClick(song) },
+                                onSwipePlayNext = {},
+                                onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
                                 artworkUri = albumArt
                             )
                         }
@@ -708,7 +816,11 @@ private fun ArtistHighFidelityHeader(artist: Artist, onBack: () -> Unit, onPlay:
         )
         
         Text(
-            text = "${artist.albumCount} Albums • ${artist.trackCount} Songs",
+            text = buildString {
+                append("${artist.albumCount} Albums")
+                append(" • ")
+                append("${artist.songs.size + artist.featuredSongs.size} Songs")
+            },
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             fontWeight = FontWeight.Medium

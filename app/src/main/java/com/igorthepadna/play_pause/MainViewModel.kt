@@ -91,7 +91,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Debounced search query
     @OptIn(FlowPreview::class)
     private val debouncedSearchQuery = _searchQuery
-        .debounce(20L) // Even more aggressive for truly "instant" feedback
+        .debounce(300L) // Balanced for responsiveness and performance
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
@@ -140,6 +140,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { LibraryFilter.valueOf(prefs.getString("last_filter", LibraryFilter.ALBUMS.name)!!) }.getOrDefault(LibraryFilter.ALBUMS)
     )
     val currentFilter = _currentFilter.asStateFlow()
+
+    private val _artistSelectionDialog = MutableStateFlow<List<String>?>(null)
+    val artistSelectionDialog = _artistSelectionDialog.asStateFlow()
+
+    fun showArtistSelection(artists: List<String>) {
+        _artistSelectionDialog.value = artists
+    }
+
+    fun dismissArtistSelection() {
+        _artistSelectionDialog.value = null
+    }
 
     private val _isPlayerFullScreen = MutableStateFlow(false)
     val isPlayerFullScreen = _isPlayerFullScreen.asStateFlow()
@@ -217,7 +228,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Optimized filtering: check title first as it's more likely to match
         val list = allSongs.filter { 
-            it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true) 
+            it.title.contains(query, ignoreCase = true) || 
+            it.artist.contains(query, ignoreCase = true) ||
+            (it.albumArtist?.contains(query, ignoreCase = true) ?: false)
         }
         
         when (currentSettings.sortType) {
@@ -228,21 +241,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    val albumArtMap: StateFlow<Map<Long, android.net.Uri?>> = _allAlbums.map { albums ->
+        albums.associate { it.id to it.artworkUri }
+    }.debounce(300) // Optimization: Prevent UI thread from being overwhelmed during library scanning
+    .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     val sortedAlbums = combine(_allAlbums, debouncedSearchQuery, _tabSortSettings) { albums, query, settings ->
         val currentSettings = settings[LibraryFilter.ALBUMS] ?: TabSortSettings()
         
-        // Fast path for empty query
-        if (query.isBlank()) {
-            return@combine when (currentSettings.sortType) {
-                SortType.TITLE -> if (currentSettings.sortOrder == SortOrder.ASC) albums.sortedBy { it.title } else albums.sortedByDescending { it.title }
-                SortType.ARTIST -> if (currentSettings.sortOrder == SortOrder.ASC) albums.sortedBy { it.artist } else albums.sortedByDescending { it.artist }
-                SortType.RELEASE_DATE -> if (currentSettings.sortOrder == SortOrder.ASC) albums.sortedBy { it.year } else albums.sortedByDescending { it.year }
-                else -> albums
+        val list = if (query.isBlank()) {
+            albums
+        } else {
+            albums.filter { 
+                it.title.contains(query, ignoreCase = true) || 
+                it.artist.contains(query, ignoreCase = true)
             }
-        }
-
-        val list = albums.filter { 
-            it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true) 
         }
         
         when (currentSettings.sortType) {
@@ -256,19 +270,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val sortedArtists = combine(_allArtists, debouncedSearchQuery, _tabSortSettings) { artists, query, settings ->
         val currentSettings = settings[LibraryFilter.ARTISTS] ?: TabSortSettings()
         
-        var list = if (query.isBlank()) artists else artists.filter { it.name.contains(query, true) }
+        var list = if (query.isBlank()) artists else artists.filter { artist ->
+            artist.name.contains(query, ignoreCase = true) ||
+            artist.songs.any { it.title.contains(query, ignoreCase = true) } ||
+            artist.featuredSongs.any { it.title.contains(query, ignoreCase = true) }
+        }
         
         if (currentSettings.showOnlyAlbumArtists) {
             list = list.filter { it.albumCount > 1 || (it.albumCount == 1 && it.songs.size > 2) }
-        }
-
-        if (query.isBlank() && !currentSettings.showOnlyAlbumArtists) {
-             return@combine when (currentSettings.sortType) {
-                SortType.TITLE -> if (currentSettings.sortOrder == SortOrder.ASC) artists.sortedBy { it.name } else artists.sortedByDescending { it.name }
-                SortType.ALBUM_COUNT -> if (currentSettings.sortOrder == SortOrder.ASC) artists.sortedBy { it.albumCount } else artists.sortedByDescending { it.albumCount }
-                SortType.TRACK_COUNT -> if (currentSettings.sortOrder == SortOrder.ASC) artists.sortedBy { it.trackCount } else artists.sortedByDescending { it.trackCount }
-                else -> artists
-            }
         }
 
         when (currentSettings.sortType) {
@@ -279,9 +288,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val albumArtMap: StateFlow<Map<Long, android.net.Uri?>> = _allAlbums.map { albums ->
-        albums.associate { it.id to it.artworkUri }
+    val genres = _songs.map { songs ->
+        songs.mapNotNull { it.genre }.distinct().sorted()
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val songsMap = songs.map { list ->
+        list.associateBy { it.id }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val currentPlayingSong = combine(currentPlayingId, songsMap) { id, map ->
+        map[id]
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val currentPlayingAlbum = combine(currentPlayingSong, _allAlbums) { song, albums ->
+        song?.let { s -> albums.find { it.id == s.albumId } }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // UI Persistence
     sealed class Selection {
@@ -513,7 +534,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val song = _songs.value.find { it.id == mediaId } ?: return
+        val song = songsMap.value[mediaId] ?: return
 
         viewModelScope.launch {
             _isLyricsLoading.value = true
@@ -553,44 +574,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = _player.value ?: return
         if (songs.isEmpty()) return
         val safeStartIndex = startIndex.coerceIn(0, songs.size - 1)
-        
-        playJob?.cancel()
-        playJob = viewModelScope.launch(Dispatchers.Default) {
-            val mediaItems = songs.map { it.toMediaItem() }
-            withContext(Dispatchers.Main) {
-                try {
-                    player.stop()
-                    player.clearMediaItems()
-                    
-                    // Optimization for large lists to prevent Binder transaction failures
-                    if (mediaItems.size > 500) {
-                        // Add target item first for immediate feedback
-                        player.setMediaItem(mediaItems[safeStartIndex])
-                        player.prepare()
-                        player.play()
-                        player.shuffleModeEnabled = shuffle
 
-                        val before = mediaItems.subList(0, safeStartIndex)
-                        val after = mediaItems.subList(safeStartIndex + 1, mediaItems.size)
+        // Quick check for queue stability: if the count matches and the target song is the same at that index,
+        // we assume it's the same list and just seek. This prevents a full reload lag.
+        val isSameQueue = player.mediaItemCount == songs.size && 
+                         safeStartIndex < player.mediaItemCount &&
+                         player.getMediaItemAt(safeStartIndex).mediaId == songs[safeStartIndex].id.toString()
+        
+        if (isSameQueue) {
+            player.seekTo(safeStartIndex, 0L)
+            player.play()
+            player.shuffleModeEnabled = shuffle
+            return
+        }
+
+        // Immediate playback of the clicked song for zero-latency feedback
+        val targetSong = songs[safeStartIndex]
+        val targetMediaItem = targetSong.toMediaItem()
+        
+        player.stop()
+        player.clearMediaItems()
+        player.setMediaItem(targetMediaItem)
+        player.prepare()
+        player.play()
+        player.shuffleModeEnabled = shuffle
+
+        playJob?.cancel()
+        playJob = viewModelScope.launch(Dispatchers.Main) {
+            try {
+                // Load remaining songs in background to prevent UI blocking (IPC overhead)
+                if (songs.size > 1) {
+                    val beforeSongs = songs.subList(0, safeStartIndex)
+                    val afterSongs = songs.subList(safeStartIndex + 1, songs.size)
+
+                    withContext(Dispatchers.Default) {
+                        val afterItems = afterSongs.map { it.toMediaItem() }
+                        val beforeItems = beforeSongs.map { it.toMediaItem() }
                         
-                        // Add the rest in background chunks
-                        after.chunked(200).forEach { chunk ->
-                            player.addMediaItems(chunk)
+                        withContext(Dispatchers.Main) {
+                            if (afterItems.isNotEmpty()) {
+                                player.addMediaItems(afterItems)
+                            }
+                            if (beforeItems.isNotEmpty()) {
+                                player.addMediaItems(0, beforeItems)
+                            }
                         }
-                        var insertPos = 0
-                        before.chunked(200).forEach { chunk ->
-                            player.addMediaItems(insertPos, chunk)
-                            insertPos += chunk.size
-                        }
-                    } else {
-                        player.setMediaItems(mediaItems, safeStartIndex, 0L)
-                        player.shuffleModeEnabled = shuffle
-                        player.prepare()
-                        player.play()
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }

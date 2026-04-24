@@ -58,9 +58,11 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.igorthepadna.play_pause.data.LibraryFilter
+import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.data.SortOrder
 import com.igorthepadna.play_pause.data.SortType
 import com.igorthepadna.play_pause.data.Song
+import com.igorthepadna.play_pause.ui.components.ArtistSelectionDialog
 import com.igorthepadna.play_pause.ui.components.FullScreenLyrics
 import com.igorthepadna.play_pause.ui.components.FullScreenPlayer
 import com.igorthepadna.play_pause.ui.components.NowPlayingBar
@@ -308,7 +310,6 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
             ) { paddingValues ->
                 Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                     LibraryScreen(
-                        player = player, 
                         currentFilter = currentFilter,
                         hasPermission = hasPermission,
                         isRefreshing = isRefreshing,
@@ -347,6 +348,16 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                         onSortClick = { showSortSheet = true },
                         onSettingsClick = { isSettingsVisible = true },
                         onClick = { viewModel.setPlayerFullScreen(true) },
+                        onNavigateToArtist = { artistName ->
+                            val artists = MusicRepository.splitArtists(artistName)
+                            if (artists.size > 1) {
+                                viewModel.showArtistSelection(artists)
+                            } else {
+                                viewModel.clearSelections()
+                                viewModel.setSelectedArtistName(artistName)
+                                viewModel.setPlayerFullScreen(false)
+                            }
+                        },
                         onDrag = { delta ->
                             scope.launch {
                                 playerOffsetY.snapTo((playerOffsetY.value + delta).coerceIn(-screenHeightPx, 0f))
@@ -418,7 +429,7 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
             }
         }
 
-        // Full Screen Player
+        // Full Screen Player - Always composed to keep state warm
         if (activeMediaItem != null && player != null) {
             FullScreenPlayer(
                 player = player,
@@ -457,9 +468,14 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                     viewModel.setPlayerFullScreen(false)
                 },
                 onNavigateToArtist = { artistName ->
-                    viewModel.clearSelections()
-                    viewModel.setSelectedArtistName(artistName)
-                    viewModel.setPlayerFullScreen(false)
+                    val artists = MusicRepository.splitArtists(artistName)
+                    if (artists.size > 1) {
+                        viewModel.showArtistSelection(artists)
+                    } else {
+                        viewModel.clearSelections()
+                        viewModel.setSelectedArtistName(artistName)
+                        viewModel.setPlayerFullScreen(false)
+                    }
                 }
             )
         }
@@ -469,6 +485,20 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                 player = player,
                 viewModel = viewModel,
                 onDismiss = { viewModel.setFullScreenLyricsVisible(false) }
+            )
+        }
+
+        val artistSelectionDialog by viewModel.artistSelectionDialog.collectAsStateWithLifecycle()
+        if (artistSelectionDialog != null) {
+            ArtistSelectionDialog(
+                artists = artistSelectionDialog!!,
+                onArtistSelected = { artistName ->
+                    viewModel.dismissArtistSelection()
+                    viewModel.clearSelections()
+                    viewModel.setSelectedArtistName(artistName)
+                    viewModel.setPlayerFullScreen(false)
+                },
+                onDismiss = { viewModel.dismissArtistSelection() }
             )
         }
     }
@@ -512,6 +542,17 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                         snackbarHostState.currentSnackbarData?.dismiss()
                         snackbarHostState.showSnackbar("Path copied to clipboard")
                     }
+                },
+                onNavigateToArtist = { artistName ->
+                    val artists = MusicRepository.splitArtists(artistName)
+                    if (artists.size > 1) {
+                        viewModel.showArtistSelection(artists)
+                    } else {
+                        viewModel.clearSelections()
+                        viewModel.setSelectedArtistName(artistName)
+                        viewModel.setPlayerFullScreen(false)
+                    }
+                    showDetailsSheet = false
                 }
             )
         }

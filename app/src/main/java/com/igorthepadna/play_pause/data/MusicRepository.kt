@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.LruCache
 import androidx.core.net.toUri
 import com.igorthepadna.play_pause.data.db.AlbumEntity
 import com.igorthepadna.play_pause.data.db.AppDatabase
@@ -254,8 +255,13 @@ class MusicRepository(private val context: Context) {
     )
 
     private fun ArtistEntity.toDomain(songs: List<Song>, albums: List<Album>) = Artist(
-        name = name, albums = albums.filter { it.artist == name },
+        name = name, 
+        albums = albums.filter { it.artist == name },
         songs = songs.filter { it.artist == name },
+        featuredSongs = songs.filter { song -> 
+            val artistList = splitArtists(song.artist)
+            artistList.contains(name) && song.artist != name && artistList.firstOrNull() != name
+        },
         albumCount = albumCount, trackCount = trackCount,
         thumbnailUri = thumbnailUri?.let { Uri.parse(it) }
     )
@@ -334,28 +340,83 @@ class MusicRepository(private val context: Context) {
         
         if (cachedArtists != null && songs === cachedSongs && albums === cachedAlbums) return@withContext cachedArtists!!
 
+        val artistMap = mutableMapOf<String, MutableList<Song>>()
+        val featuredMap = mutableMapOf<String, MutableList<Song>>()
+        
+        songs.forEach { song ->
+            val artists = splitArtists(song.artist)
+            if (artists.isNotEmpty()) {
+                // Primary artist
+                val primaryArtist = artists[0]
+                artistMap.getOrPut(primaryArtist) { mutableListOf() }.add(song)
+                
+                // Featured artists
+                if (artists.size > 1) {
+                    artists.drop(1).forEach { name ->
+                        featuredMap.getOrPut(name) { mutableListOf() }.add(song)
+                        // Ensure featured artists exist in artistMap even if they have no primary songs
+                        artistMap.getOrPut(name) { mutableListOf() }
+                    }
+                }
+            }
+        }
+
         val albumMap = albums.groupBy { it.artist }
         val dirCache = mutableMapOf<String, Map<String, File>>()
 
-        val artists = songs.groupBy { it.artist }.map { (name, artistSongs) ->
-            val artistAlbums = albumMap[name] ?: emptyList()
-            val thumbnailUri = findArtistCoverOptimized(name, artistSongs, dirCache) ?: artistAlbums.firstOrNull { it.artworkUri != null }?.artworkUri
+        val artists = artistMap.map { (name, artistSongs) ->
+            val artistAlbums = (albumMap[name] ?: emptyList()) + 
+                albums.filter { it.songs.any { s -> 
+                    val songArtists = splitArtists(s.artist)
+                    songArtists.firstOrNull() == name
+                } }
+            
+            val distinctAlbums = artistAlbums.distinctBy { it.id }
+            val thumbnailUri = findArtistCoverOptimized(name, artistSongs, dirCache) 
+                ?: distinctAlbums.firstOrNull { it.artworkUri != null }?.artworkUri
+
+            val artistFeaturedSongs = featuredMap[name] ?: emptyList()
 
             Artist(
                 name = name,
-                albums = artistAlbums,
+                albums = distinctAlbums,
                 songs = artistSongs,
-                albumCount = artistAlbums.size,
-                trackCount = artistSongs.size,
+                featuredSongs = artistFeaturedSongs,
+                albumCount = distinctAlbums.size,
+                trackCount = artistSongs.size + artistFeaturedSongs.size,
                 thumbnailUri = thumbnailUri
             )
-        }
+        }.sortedBy { it.name.lowercase() }
         
         playlistDao.clearArtists()
         playlistDao.insertArtists(artists.map { it.toEntity() })
 
         cachedArtists = artists
         artists
+    }
+
+    companion object {
+        private val splitCache = LruCache<String, List<String>>(500)
+
+        fun splitArtists(artistString: String?): List<String> {
+            if (artistString == null || artistString.isBlank()) return listOf("Unknown Artist")
+            
+            val cached = splitCache.get(artistString)
+            if (cached != null) return cached
+
+            val delimiters = listOf(" & ", " feat. ", " ft. ", ", ", " Feat. ", " Ft. ", " / ", " with ")
+            var result = listOf(artistString)
+            
+            delimiters.forEach { delimiter ->
+                result = result.flatMap { part ->
+                    part.split(delimiter)
+                }
+            }
+            
+            val finalResult = result.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            splitCache.put(artistString, finalResult)
+            return finalResult
+        }
     }
 
     private fun findArtistCoverOptimized(

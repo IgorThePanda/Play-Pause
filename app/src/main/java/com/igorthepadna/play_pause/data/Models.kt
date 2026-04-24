@@ -66,9 +66,11 @@ data class Artist(
     val name: String,
     val albums: List<Album>,
     val songs: List<Song>,
+    val featuredSongs: List<Song> = emptyList(),
     val albumCount: Int,
     val trackCount: Int,
-    val thumbnailUri: Uri? = null
+    val thumbnailUri: Uri? = null,
+    val info: String? = null
 )
 
 @Immutable

@@ -6,16 +6,17 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed as lazyItemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,12 +28,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.Player
 import com.igorthepadna.play_pause.MainViewModel
 import com.igorthepadna.play_pause.TabSortSettings
 import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.Artist
 import com.igorthepadna.play_pause.data.LibraryFilter
+import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.data.SortType
 import com.igorthepadna.play_pause.ui.components.AlbumCard
@@ -58,7 +59,6 @@ import com.igorthepadna.play_pause.utils.ScrollbarLabel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
-    player: Player?,
     currentFilter: LibraryFilter,
     hasPermission: Boolean,
     isRefreshing: Boolean,
@@ -78,9 +78,6 @@ fun LibraryScreen(
     val sortedArtists by viewModel?.sortedArtists?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
     val playlists by viewModel?.playlists?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
     
-    // Read the current playing ID but don't perform the comparison here
-    val currentPlayingId by viewModel?.currentPlayingId?.collectAsStateWithLifecycle(-1L) ?: remember { mutableLongStateOf(-1L) }
-    
     val selectedDetail by viewModel?.selectedDetail?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
     val selectedPlaylistWithMetadata by viewModel?.selectedPlaylist?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
 
@@ -94,8 +91,12 @@ fun LibraryScreen(
     }
 
     val selectedGenreSongs by viewModel?.selectedGenreSongs?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
+    val genres by viewModel?.genres?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
 
     val albumArtMap by viewModel?.albumArtMap?.collectAsStateWithLifecycle(emptyMap()) ?: remember { mutableStateOf(emptyMap()) }
+    val currentPlayingId by viewModel?.currentPlayingId?.collectAsStateWithLifecycle(-1L) ?: remember { mutableLongStateOf(-1L) }
+    val currentPlayingSong by viewModel?.currentPlayingSong?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
+    val viewModeSettings by viewModel?.viewModeSettings?.collectAsStateWithLifecycle(emptyMap()) ?: remember { mutableStateOf(emptyMap()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -111,27 +112,45 @@ fun LibraryScreen(
     }
 
     AnimatedContent(
-        targetState = selectedDetail,
+        targetState = currentFilter to selectedDetail,
         transitionSpec = {
-            if (targetState != null) {
+            val oldDetail = initialState.second
+            val newDetail = targetState.second
+            val oldFilter = initialState.first
+            val newFilter = targetState.first
+
+            if (newDetail != null && oldDetail == null) {
+                // Navigating INTO a detail view
                 (slideInHorizontally { width -> width } + fadeIn())
                     .togetherWith(slideOutHorizontally { width -> -width / 2 } + fadeOut())
                     .apply { targetContentZIndex = 1f }
-            } else {
+            } else if (newDetail == null && oldDetail != null) {
+                // Navigating BACK from a detail view
                 (slideInHorizontally { width -> -width / 2 } + fadeIn())
                     .togetherWith(slideOutHorizontally { width -> width } + fadeOut())
                     .apply { targetContentZIndex = -1f }
+            } else if (oldFilter != newFilter && newDetail == null) {
+                // Switching categories at the top level
+                fadeIn(tween(200)) togetherWith fadeOut(tween(200))
+            } else {
+                // Internal detail change or other
+                fadeIn() togetherWith fadeOut()
             }
         },
         label = "library_transition"
-    ) { detailItem ->
+    ) { (filter, detailItem) ->
         when (detailItem) {
             is Album -> AlbumDetailView(
                 album = detailItem,
-                player = player,
+                currentPlayingId = currentPlayingId,
                 onBack = { viewModel?.popSelection() },
                 onNavigateToArtist = { artistName ->
-                    viewModel?.setSelectedArtistName(artistName)
+                    val artists = MusicRepository.splitArtists(artistName)
+                    if (artists.size > 1) {
+                        viewModel?.showArtistSelection(artists)
+                    } else {
+                        viewModel?.setSelectedArtistName(artistName)
+                    }
                 },
                 onSongDetails = onSongDetails,
                 onPlaySongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
@@ -143,6 +162,9 @@ fun LibraryScreen(
             )
             is Artist -> ArtistDetailView(
                 artist = detailItem,
+                currentPlayingId = currentPlayingId,
+                currentPlayingSong = currentPlayingSong,
+                albumArtMap = albumArtMap,
                 onBack = { viewModel?.popSelection() },
                 onAlbumClick = { viewModel?.setSelectedAlbumId(it.id) },
                 onPlayArtist = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
@@ -152,6 +174,14 @@ fun LibraryScreen(
                 onSongDetailsClick = onSongDetails,
                 onPlayAllSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
                 onPlaySpecificSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
+                onNavigateToArtist = { artistName ->
+                    val artists = MusicRepository.splitArtists(artistName)
+                    if (artists.size > 1) {
+                        viewModel?.showArtistSelection(artists)
+                    } else {
+                        viewModel?.setSelectedArtistName(artistName)
+                    }
+                },
                 onExpandCategory = { category ->
                     viewModel?.setSelectedArtistCategory(detailItem.name, category)
                 },
@@ -164,14 +194,13 @@ fun LibraryScreen(
                     val (mainAlbums, singles) = remember(artist.albums) {
                         artist.albums.partition { it.songs.size > 2 }
                     }
-                    val unreleasedSongs = remember(artist.songs) {
-                        artist.songs.filter { song ->
+                    val unreleasedSongs = remember(artist.songs, artist.featuredSongs) {
+                        (artist.songs + artist.featuredSongs).filter { song ->
                             val folderName = song.path.substringBeforeLast('/').substringAfterLast('/')
                             folderName.startsWith("XXXX", ignoreCase = true)
                         }
                     }
                     val categoryKey = "artist_${artist.name}_$category"
-                    val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(
                         viewMode = if (category == "Albums" || category == "Singles & EPs") CategoryViewMode.GRID
                         else CategoryViewMode.DETAILED
@@ -183,6 +212,7 @@ fun LibraryScreen(
                         mainAlbums = mainAlbums,
                         singles = singles,
                         unreleasedSongs = unreleasedSongs,
+                        featuredSongs = artist.featuredSongs,
                         viewMode = settings.viewMode,
                         columns = settings.columns,
                         onViewModeChange = { newMode ->
@@ -195,6 +225,14 @@ fun LibraryScreen(
                         onAlbumClick = { viewModel?.setSelectedAlbumId(it.id) },
                         onSongClick = { onPlaySongs(listOf(it), 0, null) },
                         onSongDetailsClick = onSongDetails,
+                        onNavigateToArtist = { artistName ->
+                            val artists = MusicRepository.splitArtists(artistName)
+                            if (artists.size > 1) {
+                                viewModel?.showArtistSelection(artists)
+                            } else {
+                                viewModel?.setSelectedArtistName(artistName)
+                            }
+                        },
                         onPlayAllSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
                         onPlaySpecificSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
                         albumArtMap = albumArtMap
@@ -205,6 +243,7 @@ fun LibraryScreen(
                 playlist = detailItem,
                 playlistSongs = selectedPlaylistSongs,
                 currentPlayingId = currentPlayingId,
+                albumArtMap = albumArtMap,
                 onBack = { viewModel?.popSelection() },
                 onPlaySongs = onPlaySongs,
                 onSongDetails = onSongDetails,
@@ -213,12 +252,21 @@ fun LibraryScreen(
                     onShowMessage("Added to Play Next: ${song.title}")
                 },
                 onSwipeAddToPlaylist = onAddToPlaylist,
+                onNavigateToArtist = { artistName ->
+                    val artists = MusicRepository.splitArtists(artistName)
+                    if (artists.size > 1) {
+                        viewModel?.showArtistSelection(artists)
+                    } else {
+                        viewModel?.setSelectedArtistName(artistName)
+                    }
+                },
                 viewModel = viewModel
             )
             is String -> GenreDetailView(
                 genre = detailItem,
                 songs = selectedGenreSongs,
                 currentPlayingId = currentPlayingId,
+                albumArtMap = albumArtMap,
                 onBack = { viewModel?.popSelection() },
                 onSongClick = { song -> onPlaySongs(selectedGenreSongs, selectedGenreSongs.indexOf(song), null) },
                 onSongDetailsClick = onSongDetails,
@@ -228,6 +276,14 @@ fun LibraryScreen(
                     onShowMessage("Added to Play Next: ${song.title}")
                 },
                 onSwipeAddToPlaylist = onAddToPlaylist,
+                onNavigateToArtist = { artistName ->
+                    val artists = MusicRepository.splitArtists(artistName)
+                    if (artists.size > 1) {
+                        viewModel?.showArtistSelection(artists)
+                    } else {
+                        viewModel?.setSelectedArtistName(artistName)
+                    }
+                },
                 viewModel = viewModel
             )
             else -> Box(modifier = Modifier.fillMaxSize()) {
@@ -253,10 +309,9 @@ fun LibraryScreen(
                         }) { Text("Grant Permissions") }
                     }
                 } else {
-                    when (currentFilter) {
+                    when (filter) {
                         LibraryFilter.ALBUMS -> Box(modifier = Modifier.fillMaxSize()) {
                             val categoryKey = "library_albums"
-                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
                             val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
                             val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
 
@@ -273,37 +328,60 @@ fun LibraryScreen(
                                     key = { it.id },
                                     contentType = { "album_card" }
                                 ) { album ->
+                                    val isPlaying = album.id == currentPlayingSong?.albumId
+                                    val albumArt = albumArtMap[album.id] ?: album.artworkUri
+                                    val displayAlbum = remember(album, albumArt) {
+                                        if (albumArt != album.artworkUri) album.copy(artworkUri = albumArt) else album
+                                    }
+                                    
+                                    val onAlbumClick: () -> Unit = remember(album.id) { { viewModel?.setSelectedAlbumId(album.id) } }
+                                    val onAlbumPlay: () -> Unit = remember(album.id, album.songs) { { onPlaySongs(album.songs, 0, null) } }
+                                    val onArtistNav: (String) -> Unit = remember { 
+                                        { artistName: String ->
+                                            val artists = MusicRepository.splitArtists(artistName)
+                                            if (artists.size > 1) {
+                                                viewModel?.showArtistSelection(artists)
+                                            } else {
+                                                viewModel?.setSelectedArtistName(artistName)
+                                            }
+                                        }
+                                    }
+
                                     if (settings.viewMode == CategoryViewMode.GRID) {
                                         AlbumCard(
-                                            album = album, 
-                                            onClick = { viewModel?.setSelectedAlbumId(album.id) },
-                                            onPlayClick = { onPlaySongs(album.songs, 0, null) },
-                                            columns = effectiveColumns
+                                            album = displayAlbum, 
+                                            onClick = onAlbumClick,
+                                            onPlayClick = onAlbumPlay,
+                                            columns = effectiveColumns,
+                                            isPlaying = isPlaying,
+                                            onNavigateToArtist = onArtistNav
                                         )
                                     } else if (settings.viewMode == CategoryViewMode.COMPACT) {
                                         CompactSongItem(
-                                            song = album.songs.first(),
-                                            isPlaying = false,
-                                            onClick = { viewModel?.setSelectedAlbumId(album.id) },
+                                            song = displayAlbum.songs.first(),
+                                            isPlaying = isPlaying,
+                                            onClick = onAlbumClick,
                                             onDetailsClick = {},
                                             onSwipePlayNext = {},
                                             onSwipeAddToPlaylist = {},
-                                            label = album.title,
-                                            secondaryLabel = album.artist,
-                                            artworkUri = album.artworkUri,
-                                            onPlayClick = { onPlaySongs(album.songs, 0, null) }
+                                            label = displayAlbum.title,
+                                            secondaryLabel = displayAlbum.artist,
+                                            artworkUri = displayAlbum.artworkUri,
+                                            onPlayClick = onAlbumPlay,
+                                            onNavigateToArtist = onArtistNav
                                         )
                                     } else {
                                         SongItem(
-                                            song = album.songs.first(),
-                                            isPlaying = false,
-                                            onClick = { viewModel?.setSelectedAlbumId(album.id) },
+                                            song = displayAlbum.songs.first(),
+                                            isPlaying = isPlaying,
+                                            onClick = onAlbumClick,
                                             onDetailsClick = {},
                                             onSwipePlayNext = {},
                                             onSwipeAddToPlaylist = {},
-                                            label = album.title,
-                                            secondaryLabel = album.artist,
-                                            artworkUri = album.artworkUri
+                                            label = displayAlbum.title,
+                                            secondaryLabel = displayAlbum.artist,
+                                            artworkUri = displayAlbum.artworkUri,
+                                            onNavigateToArtist = onArtistNav
                                         )
                                     }
                                 }
@@ -323,7 +401,6 @@ fun LibraryScreen(
                         }
                         LibraryFilter.ARTISTS -> Box(modifier = Modifier.fillMaxSize()) {
                             val categoryKey = "library_artists"
-                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
                             val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
                             val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
 
@@ -340,17 +417,25 @@ fun LibraryScreen(
                                     key = { it.name },
                                     contentType = { "artist_card" }
                                 ) { artist ->
+                                    val isPlaying = remember(currentPlayingSong, artist.name) {
+                                        currentPlayingSong?.let { 
+                                            MusicRepository.splitArtists(it.artist).contains(artist.name)
+                                        } ?: false
+                                    }
+                                    val onArtistClick: () -> Unit = remember(artist.name) { { viewModel?.setSelectedArtistName(artist.name) } }
+                                    
                                     if (settings.viewMode == CategoryViewMode.GRID) {
                                         ArtistCard(
                                             artist = artist, 
-                                            onClick = { viewModel?.setSelectedArtistName(artist.name) },
-                                            columns = effectiveColumns
+                                            onClick = onArtistClick,
+                                            columns = effectiveColumns,
+                                            isPlaying = isPlaying
                                         )
                                     } else if (settings.viewMode == CategoryViewMode.COMPACT) {
                                         CompactSongItem(
                                             song = artist.songs.first(),
-                                            isPlaying = false,
-                                            onClick = { viewModel?.setSelectedArtistName(artist.name) },
+                                            isPlaying = isPlaying,
+                                            onClick = onArtistClick,
                                             onDetailsClick = {},
                                             onSwipePlayNext = {},
                                             onSwipeAddToPlaylist = {},
@@ -361,8 +446,8 @@ fun LibraryScreen(
                                     } else {
                                         SongItem(
                                             song = artist.songs.first(),
-                                            isPlaying = false,
-                                            onClick = { viewModel?.setSelectedArtistName(artist.name) },
+                                            isPlaying = isPlaying,
+                                            onClick = onArtistClick,
                                             onDetailsClick = {},
                                             onSwipePlayNext = {},
                                             onSwipeAddToPlaylist = {},
@@ -384,7 +469,6 @@ fun LibraryScreen(
                         }
                         LibraryFilter.PLAYLISTS -> Box(modifier = Modifier.fillMaxSize()) {
                             val categoryKey = "library_playlists"
-                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
                             val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
                             val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
 
@@ -397,6 +481,11 @@ fun LibraryScreen(
                                 modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                             ) {
                                 items(playlists) { playlist ->
+                                    val isPlaying = remember(playlist.songs, currentPlayingId) {
+                                        playlist.songs.contains(currentPlayingId)
+                                    }
+                                    val onPlaylistClick: () -> Unit = remember(playlist.id) { { viewModel?.setSelectedPlaylistId(playlist.id) } }
+                                    
                                     if (settings.viewMode == CategoryViewMode.GRID) {
                                         AlbumCard(
                                             album = Album(
@@ -406,13 +495,14 @@ fun LibraryScreen(
                                                 artworkUri = null,
                                                 songs = emptyList()
                                             ),
-                                            onClick = { viewModel?.setSelectedPlaylistId(playlist.id) }
+                                            onClick = onPlaylistClick,
+                                            isPlaying = isPlaying
                                         )
                                     } else if (settings.viewMode == CategoryViewMode.COMPACT) {
                                         CompactSongItem(
                                             song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
-                                            isPlaying = false,
-                                            onClick = { viewModel?.setSelectedPlaylistId(playlist.id) },
+                                            isPlaying = isPlaying,
+                                            onClick = onPlaylistClick,
                                             onDetailsClick = {},
                                             onSwipePlayNext = {},
                                             onSwipeAddToPlaylist = {},
@@ -423,8 +513,8 @@ fun LibraryScreen(
                                     } else {
                                         SongItem(
                                             song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
-                                            isPlaying = false,
-                                            onClick = { viewModel?.setSelectedPlaylistId(playlist.id) },
+                                            isPlaying = isPlaying,
+                                            onClick = onPlaylistClick,
                                             onDetailsClick = {},
                                             onSwipePlayNext = {},
                                             onSwipeAddToPlaylist = {},
@@ -437,11 +527,7 @@ fun LibraryScreen(
                             }
                         }
                         LibraryFilter.GENRES -> Box(modifier = Modifier.fillMaxSize()) {
-                            val genres = remember(filteredSongs) {
-                                filteredSongs.mapNotNull { it.genre }.distinct().sorted()
-                            }
                             val categoryKey = "library_genres"
-                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
                             val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
                             val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
 
@@ -454,18 +540,22 @@ fun LibraryScreen(
                                 modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                             ) {
                                 items(genres) { genre ->
-                                    val count = filteredSongs.count { it.genre == genre }
+                                    val isPlaying = currentPlayingSong?.genre == genre
+                                    val count = remember(filteredSongs, genre) { filteredSongs.count { it.genre == genre } }
+                                    val onGenreClick: () -> Unit = remember(genre) { { viewModel?.setSelectedGenreName(genre) } }
+                                    
                                     if (settings.viewMode == CategoryViewMode.GRID) {
                                         GenreCard(
                                             genre = genre,
                                             songCount = count,
-                                            onClick = { viewModel?.setSelectedGenreName(genre) }
+                                            onClick = onGenreClick,
+                                            isPlaying = isPlaying
                                         )
                                     } else if (settings.viewMode == CategoryViewMode.COMPACT) {
                                         CompactSongItem(
                                             song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
-                                            isPlaying = false,
-                                            onClick = { viewModel?.setSelectedGenreName(genre) },
+                                            isPlaying = isPlaying,
+                                            onClick = onGenreClick,
                                             onDetailsClick = {},
                                             onSwipePlayNext = {},
                                             onSwipeAddToPlaylist = {},
@@ -476,8 +566,8 @@ fun LibraryScreen(
                                     } else {
                                         SongItem(
                                             song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
-                                            isPlaying = false,
-                                            onClick = { viewModel?.setSelectedGenreName(genre) },
+                                            isPlaying = isPlaying,
+                                            onClick = onGenreClick,
                                             onDetailsClick = {},
                                             onSwipePlayNext = {},
                                             onSwipeAddToPlaylist = {},
@@ -491,7 +581,6 @@ fun LibraryScreen(
                         }
                         else -> Box(modifier = Modifier.fillMaxSize()) {
                             val categoryKey = "library_songs"
-                            val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
                             val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
                             
                             if (settings.viewMode == CategoryViewMode.GRID) {
@@ -503,17 +592,35 @@ fun LibraryScreen(
                                     verticalArrangement = Arrangement.spacedBy(24.dp),
                                     modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                                 ) {
-                                    items(filteredSongs) { song ->
+                                    gridItemsIndexed(
+                                        items = filteredSongs,
+                                        key = { _: Int, song: Song -> song.id },
+                                        contentType = { _: Int, _: Song -> "song_album_card" }
+                                    ) { index, song ->
+                                        val isPlaying = song.id == currentPlayingId
                                         val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                                        val onSongClick: () -> Unit = remember(song.id, index) { { onPlaySongs(filteredSongs, index, null) } }
+                                        val onArtistNav: (String) -> Unit = remember { 
+                                            { artistName: String ->
+                                                val artists = MusicRepository.splitArtists(artistName)
+                                                if (artists.size > 1) {
+                                                    viewModel?.showArtistSelection(artists)
+                                                } else {
+                                                    viewModel?.setSelectedArtistName(artistName)
+                                                }
+                                            }
+                                        }
                                         AlbumCard(
-                                            album = Album(
-                                                id = song.albumId,
-                                                title = song.title,
-                                                artist = song.artist,
-                                                artworkUri = albumArt,
-                                                songs = listOf(song)
-                                            ),
-                                            onClick = { onPlaySongs(filteredSongs, filteredSongs.indexOf(song), null) }
+                                            title = song.title,
+                                            artist = song.artist,
+                                            artworkUri = albumArt,
+                                            onClick = onSongClick,
+                                            columns = settings.columns,
+                                            isPlaying = isPlaying,
+                                            songCount = 1,
+                                            allCovers = emptyList(),
+                                            hasFolderCover = true,
+                                            onNavigateToArtist = onArtistNav
                                         )
                                     }
                                 }
@@ -524,37 +631,53 @@ fun LibraryScreen(
                                     contentPadding = contentPadding,
                                     modifier = Modifier.fillMaxSize().verticalScrollbar(listState, padding = scrollbarPadding)
                                 ) {
-                                    itemsIndexed(
+                                    lazyItemsIndexed(
                                         items = filteredSongs, 
-                                        key = { _, song -> song.id },
-                                        contentType = { _, _ -> "song_item" }
+                                        key = { _: Int, song: Song -> song.id },
+                                        contentType = { _: Int, _: Song -> "song_item" }
                                     ) { index, song ->
+                                        val isPlaying = song.id == currentPlayingId
                                         val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                                        val onSongClick: () -> Unit = remember(song.id, index) { { onPlaySongs(filteredSongs, index, null) } }
+                                        val onSongDetailsInternal: () -> Unit = remember(song.id) { { onSongDetails(song) } }
+                                        val onArtistNav: (String) -> Unit = remember { 
+                                            { artistName: String ->
+                                                val artists = MusicRepository.splitArtists(artistName)
+                                                if (artists.size > 1) {
+                                                    viewModel?.showArtistSelection(artists)
+                                                } else {
+                                                    viewModel?.setSelectedArtistName(artistName)
+                                                }
+                                            }
+                                        }
+
                                         if (settings.viewMode == CategoryViewMode.COMPACT) {
                                             CompactSongItem(
                                                 song = song,
-                                                isPlaying = song.id == currentPlayingId,
-                                                onClick = { onPlaySongs(filteredSongs, index, null) },
-                                                onDetailsClick = { onSongDetails(song) },
+                                                isPlaying = isPlaying,
+                                                onClick = onSongClick,
+                                                onDetailsClick = onSongDetailsInternal,
                                                 onSwipePlayNext = {
                                                     viewModel?.addPlayNext(song)
                                                     onShowMessage("Added to Play Next")
                                                 },
                                                 onSwipeAddToPlaylist = { onAddToPlaylist(song) },
-                                                artworkUri = albumArt
+                                                artworkUri = albumArt,
+                                                onNavigateToArtist = onArtistNav
                                             )
                                         } else {
                                             SongItem(
                                                 song = song,
-                                                isPlaying = song.id == currentPlayingId,
-                                                onClick = { onPlaySongs(filteredSongs, index, null) },
-                                                onDetailsClick = { onSongDetails(song) },
+                                                isPlaying = isPlaying,
+                                                onClick = onSongClick,
+                                                onDetailsClick = onSongDetailsInternal,
                                                 onSwipePlayNext = {
                                                     viewModel?.addPlayNext(song)
                                                     onShowMessage("Added to Play Next")
                                                 },
                                                 onSwipeAddToPlaylist = { onAddToPlaylist(song) },
-                                                artworkUri = albumArt
+                                                artworkUri = albumArt,
+                                                onNavigateToArtist = onArtistNav
                                             )
                                         }
                                     }
@@ -607,7 +730,6 @@ fun LibraryScreen(
                         LibraryFilter.PLAYLISTS -> "library_playlists"
                         else -> "library_songs"
                     }
-                    val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(
                         viewMode = if (currentFilter == LibraryFilter.ALBUMS || currentFilter == LibraryFilter.ARTISTS || currentFilter == LibraryFilter.GENRES) CategoryViewMode.GRID else CategoryViewMode.DETAILED
                     )
@@ -623,7 +745,7 @@ fun LibraryScreen(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
                             )
                         ) {
-                            Text("${settings.columns}", fontWeight = FontWeight.Black, fontSize = 14.sp)
+                            Text(settings.columns.toString(), fontWeight = FontWeight.Black, fontSize = 14.sp)
                         }
                         Spacer(Modifier.width(8.dp))
                     }

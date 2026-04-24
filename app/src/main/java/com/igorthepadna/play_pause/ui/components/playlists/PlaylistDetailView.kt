@@ -52,11 +52,13 @@ fun PlaylistDetailView(
     playlist: Playlist,
     playlistSongs: List<Song>,
     currentPlayingId: Long,
+    albumArtMap: Map<Long, android.net.Uri?>,
     onBack: () -> Unit,
     onPlaySongs: (List<Song>, Int, Boolean?) -> Unit,
     onSongDetails: (Song) -> Unit,
     onSwipePlayNext: (Song) -> Unit,
     onSwipeAddToPlaylist: (Song) -> Unit,
+    onNavigateToArtist: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MainViewModel? = null
 ) {
@@ -64,7 +66,6 @@ fun PlaylistDetailView(
     val categoryKey = "playlist_${playlist.id}"
     val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
-    val allAlbums by viewModel?.sortedAlbums?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList<Album>()) }
     
     val viewMode = settings.viewMode
     val columns = settings.columns
@@ -142,9 +143,7 @@ fun PlaylistDetailView(
 
                 if (viewMode == CategoryViewMode.GRID) {
                     gridItems(playlistSongs, key = { it.id }) { song ->
-                        val albumArt = remember(allAlbums, song) {
-                            allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                        }
+                        val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                         AlbumCard(
                             album = Album(
                                 id = song.albumId,
@@ -155,7 +154,8 @@ fun PlaylistDetailView(
                             ),
                             onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
                             modifier = Modifier.padding(4.dp),
-                            columns = columns
+                            columns = columns,
+                            isPlaying = song.id == currentPlayingId
                         )
                     }
                 } else {
@@ -168,9 +168,7 @@ fun PlaylistDetailView(
                                 .padding(8.dp)
                         ) {
                             playlistSongs.forEach { song ->
-                                val albumArt = remember(allAlbums, song) {
-                                    allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                                }
+                                val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                                 Box(modifier = Modifier.padding(vertical = 2.dp)) {
                                     if (viewMode == CategoryViewMode.COMPACT) {
                                         CompactSongItem(
@@ -180,6 +178,7 @@ fun PlaylistDetailView(
                                             onDetailsClick = { onSongDetails(song) },
                                             onSwipePlayNext = { onSwipePlayNext(song) },
                                             onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                                            onNavigateToArtist = onNavigateToArtist,
                                             showArtist = true,
                                             containerColor = if (song.id == currentPlayingId) null else Color.Transparent,
                                             artworkUri = albumArt
@@ -192,6 +191,7 @@ fun PlaylistDetailView(
                                             onDetailsClick = { onSongDetails(song) },
                                             onSwipePlayNext = { onSwipePlayNext(song) },
                                             onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                                            onNavigateToArtist = onNavigateToArtist,
                                             containerColor = if (song.id == currentPlayingId) null else Color.Transparent,
                                             artworkUri = albumArt
                                         )

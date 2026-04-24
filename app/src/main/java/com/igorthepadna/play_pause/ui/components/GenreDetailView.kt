@@ -46,19 +46,20 @@ fun GenreDetailView(
     genre: String,
     songs: List<Song>,
     currentPlayingId: Long,
+    albumArtMap: Map<Long, android.net.Uri?>,
     onBack: () -> Unit,
     onSongClick: (Song) -> Unit,
     onSongDetailsClick: (Song) -> Unit,
     onPlaySongs: (List<Song>, Int, Boolean?) -> Unit,
     onSwipePlayNext: (Song) -> Unit,
     onSwipeAddToPlaylist: (Song) -> Unit,
+    onNavigateToArtist: (String) -> Unit = {},
     viewModel: MainViewModel? = null
 ) {
     val gridState = rememberLazyGridState()
     val categoryKey = "genre_$genre"
     val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
-    val allAlbums by viewModel?.sortedAlbums?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList<Album>()) }
     
     val viewMode = settings.viewMode
     val columns = settings.columns
@@ -111,9 +112,7 @@ fun GenreDetailView(
 
             if (viewMode == CategoryViewMode.GRID) {
                 gridItems(songs, key = { it.id }) { song ->
-                    val albumArt = remember(allAlbums, song) {
-                        allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                    }
+                    val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                     AlbumCard(
                         album = Album(
                             id = song.albumId,
@@ -124,7 +123,8 @@ fun GenreDetailView(
                         ),
                         onClick = { onSongClick(song) },
                         modifier = Modifier.padding(4.dp),
-                        columns = columns
+                        columns = columns,
+                        isPlaying = song.id == currentPlayingId
                     )
                 }
             } else {
@@ -137,9 +137,7 @@ fun GenreDetailView(
                             .padding(8.dp)
                     ) {
                         songs.forEach { song ->
-                            val albumArt = remember(allAlbums, song) {
-                                allAlbums.find { it.id == song.albumId }?.artworkUri ?: song.albumArtUri
-                            }
+                            val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                             if (viewMode == CategoryViewMode.COMPACT) {
                                 CompactSongItem(
                                     song = song,
@@ -148,6 +146,7 @@ fun GenreDetailView(
                                     onDetailsClick = { onSongDetailsClick(song) },
                                     onSwipePlayNext = { onSwipePlayNext(song) },
                                     onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                                    onNavigateToArtist = onNavigateToArtist,
                                     showArtist = true,
                                     artworkUri = albumArt
                                 )
@@ -159,6 +158,7 @@ fun GenreDetailView(
                                     onDetailsClick = { onSongDetailsClick(song) },
                                     onSwipePlayNext = { onSwipePlayNext(song) },
                                     onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                                    onNavigateToArtist = onNavigateToArtist,
                                     artworkUri = albumArt
                                 )
                             }
