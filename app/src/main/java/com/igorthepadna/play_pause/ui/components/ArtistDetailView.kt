@@ -40,6 +40,8 @@ import com.igorthepadna.play_pause.MainViewModel
 import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.Artist
 import com.igorthepadna.play_pause.data.Song
+import com.igorthepadna.play_pause.ui.components.UniversalSongItem
+import com.igorthepadna.play_pause.ui.components.UniversalSongItem
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
@@ -290,7 +292,7 @@ fun ArtistDetailView(
                     ) {
                         allSongs.take(10).forEach { song ->
                             val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
-                            CompactSongItem(
+                            UniversalSongItem(
                                 song = song,
                                 isPlaying = song.id == currentPlayingId,
                                 onClick = { onPlaySpecificSongs(allSongs, allSongs.indexOf(song), false) },
@@ -362,43 +364,47 @@ fun CategoryDetailView(
                     }
                 },
                 actions = {
-                    Row(
-                        modifier = Modifier.padding(end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        if (viewMode == CategoryViewMode.GRID) {
-                            TextButton(
-                                onClick = {
-                                    val newColumns = if (columns >= 4) 1 else columns + 1
-                                    onColumnsChange(newColumns)
-                                },
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Text("$columns", fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    val isUnifiedList = title == "All Songs" || title == "Unreleased" || title == "Featured In"
+                    
+                    if (!isUnifiedList) {
+                        Row(
+                            modifier = Modifier.padding(end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            if (viewMode == CategoryViewMode.GRID) {
+                                TextButton(
+                                    onClick = {
+                                        val newColumns = if (columns >= 4) 1 else columns + 1
+                                        onColumnsChange(newColumns)
+                                    },
+                                    contentPadding = PaddingValues(0.dp),
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Text("$columns", fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                }
                             }
-                        }
 
-                        IconButton(onClick = {
-                            val newMode = when (viewMode) {
-                                CategoryViewMode.GRID -> CategoryViewMode.DETAILED
-                                CategoryViewMode.DETAILED -> CategoryViewMode.COMPACT
-                                CategoryViewMode.COMPACT -> if (title.contains("Song") || title == "Unreleased") CategoryViewMode.DETAILED else CategoryViewMode.GRID
+                            IconButton(onClick = {
+                                val newMode = when (viewMode) {
+                                    CategoryViewMode.GRID -> CategoryViewMode.DETAILED
+                                    CategoryViewMode.DETAILED -> CategoryViewMode.COMPACT
+                                    CategoryViewMode.COMPACT -> if (title.contains("Song") || title == "Unreleased") CategoryViewMode.DETAILED else CategoryViewMode.GRID
+                                }
+                                onViewModeChange(newMode)
+                            }) {
+                                Icon(
+                                    when (viewMode) {
+                                        CategoryViewMode.GRID -> Icons.Rounded.GridView
+                                        CategoryViewMode.DETAILED -> Icons.Rounded.ViewStream
+                                        CategoryViewMode.COMPACT -> Icons.Rounded.ViewHeadline
+                                    },
+                                    contentDescription = "View Mode"
+                                )
                             }
-                            onViewModeChange(newMode)
-                        }) {
-                            Icon(
-                                when (viewMode) {
-                                    CategoryViewMode.GRID -> Icons.Rounded.GridView
-                                    CategoryViewMode.DETAILED -> Icons.Rounded.ViewStream
-                                    CategoryViewMode.COMPACT -> Icons.Rounded.ViewHeadline
-                                },
-                                contentDescription = "View Mode"
-                            )
-                        }
 
-                        Spacer(Modifier.width(4.dp))
+                            Spacer(Modifier.width(4.dp))
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -427,7 +433,7 @@ fun CategoryDetailView(
                                 onNavigateToArtist = onNavigateToArtist,
                                 columns = columns
                             )
-                            CategoryViewMode.COMPACT -> CompactSongItem(
+                            CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = album.songs.first(),
                                 isPlaying = false,
                                 onClick = { onAlbumClick(album) },
@@ -437,10 +443,9 @@ fun CategoryDetailView(
                                 onNavigateToArtist = onNavigateToArtist,
                                 label = album.title,
                                 secondaryLabel = album.artist,
-                                artworkUri = album.artworkUri,
-                                onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) }
+                                artworkUri = album.artworkUri
                             )
-                            CategoryViewMode.DETAILED -> SongItem(
+                            CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = album.songs.first(),
                                 isPlaying = false,
                                 onClick = { onAlbumClick(album) },
@@ -465,7 +470,7 @@ fun CategoryDetailView(
                                 onNavigateToArtist = onNavigateToArtist,
                                 columns = columns
                             )
-                            CategoryViewMode.COMPACT -> CompactSongItem(
+                            CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = album.songs.first(),
                                 isPlaying = false,
                                 onClick = { onAlbumClick(album) },
@@ -475,10 +480,9 @@ fun CategoryDetailView(
                                 onNavigateToArtist = onNavigateToArtist,
                                 label = album.title,
                                 secondaryLabel = album.artist,
-                                artworkUri = album.artworkUri,
-                                onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) }
+                                artworkUri = album.artworkUri
                             )
-                            CategoryViewMode.DETAILED -> SongItem(
+                            CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = album.songs.first(),
                                 isPlaying = false,
                                 onClick = { onAlbumClick(album) },
@@ -510,7 +514,7 @@ fun CategoryDetailView(
                                 onNavigateToArtist = onNavigateToArtist,
                                 columns = columns
                             )
-                            CategoryViewMode.COMPACT -> CompactSongItem(
+                            CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = song,
                                 isPlaying = false,
                                 onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
@@ -519,10 +523,9 @@ fun CategoryDetailView(
                                 onSwipeAddToPlaylist = {},
                                 onNavigateToArtist = onNavigateToArtist,
                                 showArtist = false,
-                                onPlayClick = { onSongClick(song) },
                                 artworkUri = albumArt
                             )
-                            CategoryViewMode.DETAILED -> SongItem(
+                            CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = song,
                                 isPlaying = false,
                                 onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
@@ -552,7 +555,7 @@ fun CategoryDetailView(
                                 onNavigateToArtist = onNavigateToArtist,
                                 columns = columns
                             )
-                            CategoryViewMode.COMPACT -> CompactSongItem(
+                            CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = song,
                                 isPlaying = false,
                                 onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
@@ -561,10 +564,9 @@ fun CategoryDetailView(
                                 onSwipeAddToPlaylist = {},
                                 onNavigateToArtist = onNavigateToArtist,
                                 showArtist = true,
-                                onPlayClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
                                 artworkUri = albumArt
                             )
-                            CategoryViewMode.DETAILED -> SongItem(
+                            CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = song,
                                 isPlaying = false,
                                 onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
@@ -595,7 +597,7 @@ fun CategoryDetailView(
                                 onNavigateToArtist = onNavigateToArtist,
                                 columns = columns
                             )
-                            CategoryViewMode.COMPACT -> CompactSongItem(
+                            CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = song,
                                 isPlaying = false,
                                 onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
@@ -604,10 +606,9 @@ fun CategoryDetailView(
                                 onSwipeAddToPlaylist = {},
                                 onNavigateToArtist = onNavigateToArtist,
                                 showArtist = true,
-                                onPlayClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
                                 artworkUri = albumArt
                             )
-                            CategoryViewMode.DETAILED -> SongItem(
+                            CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = song,
                                 isPlaying = false,
                                 onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },

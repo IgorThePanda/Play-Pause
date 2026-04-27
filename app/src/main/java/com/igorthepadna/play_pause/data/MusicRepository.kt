@@ -516,20 +516,21 @@ class MusicRepository(private val context: Context) {
 
     // Playlist Database Operations
     fun getAllPlaylists(): Flow<List<Playlist>> {
-        return playlistDao.getAllPlaylists().map { entities ->
-            entities.map { entity ->
+        return playlistDao.getAllPlaylistsWithSongs().map { entities ->
+            entities.map { item ->
                 Playlist(
-                    id = entity.id,
-                    name = entity.name,
-                    isFavorite = entity.isFavorite,
-                    songs = emptyList() // We'll load songs separately when needed
+                    id = item.playlist.id,
+                    name = item.playlist.name,
+                    isFavorite = item.playlist.isFavorite,
+                    coverUri = item.playlist.coverUri?.let { Uri.parse(it) },
+                    songs = item.songs.map { it.songId }
                 )
             }
         }
     }
 
     suspend fun createPlaylist(name: String, id: String = java.util.UUID.randomUUID().toString(), isFavorite: Boolean = false) {
-        playlistDao.insertPlaylist(PlaylistEntity(id = id, name = name, isFavorite = isFavorite))
+        playlistDao.insertPlaylist(PlaylistEntity(id = id, name = name, isFavorite = isFavorite, coverUri = null))
     }
 
     suspend fun deletePlaylist(playlistId: String) {
@@ -562,10 +563,15 @@ class MusicRepository(private val context: Context) {
                     id = it.playlist.id,
                     name = it.playlist.name,
                     isFavorite = it.playlist.isFavorite,
+                    coverUri = it.playlist.coverUri?.let { Uri.parse(it) },
                     songs = songs.map { s -> s.id }
                 )
             }
         }
+    }
+
+    suspend fun setPlaylistCover(playlistId: String, uri: Uri?) {
+        playlistDao.updatePlaylistCover(playlistId, uri?.toString())
     }
 
     suspend fun exportPlaylists(outputStream: OutputStream) {

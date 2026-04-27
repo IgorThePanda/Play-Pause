@@ -47,8 +47,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import com.igorthepadna.play_pause.ui.components.SongItem
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -247,6 +249,107 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         hasPermission = permissions.values.all { it }
+    }
+
+    val coverPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        viewModel.coverEditingPlaylistId.value?.let { playlistId ->
+            viewModel.setPlaylistCover(playlistId, uri)
+            viewModel.setCoverEditingPlaylistId(null)
+        }
+    }
+
+    val coverEditingPlaylistId by viewModel.coverEditingPlaylistId.collectAsStateWithLifecycle()
+    LaunchedEffect(coverEditingPlaylistId) {
+        if (coverEditingPlaylistId != null) {
+            coverPickerLauncher.launch("image/*")
+        }
+    }
+
+    val songSelectionPlaylistId by viewModel.songSelectionPlaylistId.collectAsStateWithLifecycle()
+    if (songSelectionPlaylistId != null) {
+        val allSongs by viewModel.songs.collectAsStateWithLifecycle()
+        var songSearchQuery by remember { mutableStateOf("") }
+        val filteredSongs = remember(allSongs, songSearchQuery) {
+            if (songSearchQuery.isBlank()) allSongs
+            else allSongs.filter { it.title.contains(songSearchQuery, true) || it.artist.contains(songSearchQuery, true) }
+        }
+
+        AlertDialog(
+            onDismissRequest = { viewModel.setShowSongSelectionForPlaylist(null) },
+            title = { Text("Add Songs to Playlist", fontWeight = FontWeight.Black) },
+            text = {
+                Column(modifier = Modifier.fillMaxHeight(0.7f)) {
+                    OutlinedTextField(
+                        value = songSearchQuery,
+                        onValueChange = { songSearchQuery = it },
+                        label = { Text("Search songs") },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(filteredSongs) { song ->
+                            val isPlaying = remember(song.id, activeMediaItem) { song.id.toString() == activeMediaItem?.mediaId }
+                            SongItem(
+                                song = song,
+                                isPlaying = isPlaying,
+                                onClick = {
+                                    viewModel.addToPlaylist(songSelectionPlaylistId!!, song.id)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Added ${song.title} to playlist")
+                                    }
+                                },
+                                onDetailsClick = {},
+                                onSwipePlayNext = {},
+                                onSwipeAddToPlaylist = {},
+                                artworkUri = song.albumArtUri
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.setShowSongSelectionForPlaylist(null) }) {
+                    Text("Done", fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            shape = RoundedCornerShape(28.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    val showCreatePlaylistDialog by viewModel.showCreatePlaylistDialog.collectAsStateWithLifecycle()
+    if (showCreatePlaylistDialog) {
+        var playlistName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { viewModel.setShowCreatePlaylistDialog(false) },
+            title = { Text("Create New Playlist") },
+            text = {
+                TextField(
+                    value = playlistName,
+                    onValueChange = { playlistName = it },
+                    label = { Text("Playlist Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (playlistName.isNotBlank()) {
+                            viewModel.createPlaylist(playlistName)
+                            viewModel.setShowCreatePlaylistDialog(false)
+                        }
+                    }
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.setShowCreatePlaylistDialog(false) }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
     
     // Silence warning for unused launcher

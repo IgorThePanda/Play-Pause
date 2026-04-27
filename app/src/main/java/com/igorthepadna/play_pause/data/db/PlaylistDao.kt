@@ -44,6 +44,10 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
     fun getAllPlaylists(): Flow<List<PlaylistEntity>>
 
+    @Transaction
+    @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
+    fun getAllPlaylistsWithSongs(): Flow<List<PlaylistWithSongs>>
+
     @Query("SELECT * FROM playlists WHERE id = :id")
     suspend fun getPlaylistById(id: String): PlaylistEntity?
 
@@ -67,6 +71,9 @@ interface PlaylistDao {
         val currentMaxPosition = getMaxPosition(playlistId) ?: -1
         insertPlaylistSong(PlaylistSongEntity(playlistId, songId, currentMaxPosition + 1))
     }
+
+    @Query("UPDATE playlists SET coverUri = :coverUri WHERE id = :playlistId")
+    suspend fun updatePlaylistCover(playlistId: String, coverUri: String?)
 
     @Query("SELECT MAX(position) FROM playlist_songs WHERE playlistId = :playlistId")
     suspend fun getMaxPosition(playlistId: String): Int?

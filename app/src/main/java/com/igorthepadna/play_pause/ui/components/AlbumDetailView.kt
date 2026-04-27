@@ -33,6 +33,7 @@ import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.data.Song
+import com.igorthepadna.play_pause.ui.components.UniversalSongItem
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
@@ -124,7 +125,7 @@ fun AlbumDetailView(
 
                         discSongs.forEach { song ->
                             Box(modifier = Modifier.padding(vertical = 2.dp)) {
-                                CompactSongItem(
+                                UniversalSongItem(
                                     song = song,
                                     isPlaying = song.id == currentPlayingId,
                                     onClick = { onPlaySongs(sortedSongs, sortedSongs.indexOf(song), null) },

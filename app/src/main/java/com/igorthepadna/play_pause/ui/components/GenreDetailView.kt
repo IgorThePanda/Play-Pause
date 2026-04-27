@@ -36,6 +36,7 @@ import com.igorthepadna.play_pause.MainViewModel
 import com.igorthepadna.play_pause.ViewModeSettings
 import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.Song
+import com.igorthepadna.play_pause.ui.components.UniversalSongItem
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
@@ -139,7 +140,7 @@ fun GenreDetailView(
                         songs.forEach { song ->
                             val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                             if (viewMode == CategoryViewMode.COMPACT) {
-                                CompactSongItem(
+                                UniversalSongItem(
                                     song = song,
                                     isPlaying = song.id == currentPlayingId,
                                     onClick = { onSongClick(song) },
@@ -151,7 +152,7 @@ fun GenreDetailView(
                                     artworkUri = albumArt
                                 )
                             } else {
-                                SongItem(
+                                UniversalSongItem(
                                     song = song,
                                     isPlaying = song.id == currentPlayingId,
                                     onClick = { onSongClick(song) },

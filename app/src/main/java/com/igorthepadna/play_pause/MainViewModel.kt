@@ -2,6 +2,7 @@ package com.igorthepadna.play_pause
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -160,6 +161,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isCompactLyricsMode = MutableStateFlow(false)
     val isCompactLyricsMode = _isCompactLyricsMode.asStateFlow()
+
+    private val _showCreatePlaylistDialog = MutableStateFlow(false)
+    val showCreatePlaylistDialog = _showCreatePlaylistDialog.asStateFlow()
+
+    private val _songSelectionPlaylistId = MutableStateFlow<String?>(null)
+    val songSelectionPlaylistId = _songSelectionPlaylistId.asStateFlow()
+
+    private val _coverEditingPlaylistId = MutableStateFlow<String?>(null)
+    val coverEditingPlaylistId = _coverEditingPlaylistId.asStateFlow()
+
+    fun setShowCreatePlaylistDialog(show: Boolean) {
+        _showCreatePlaylistDialog.value = show
+    }
+
+    fun setShowSongSelectionForPlaylist(playlistId: String?) {
+        _songSelectionPlaylistId.value = playlistId
+    }
+
+    fun setCoverEditingPlaylistId(playlistId: String?) {
+        _coverEditingPlaylistId.value = playlistId
+    }
 
     private val _lyricPreviewSongId = MutableStateFlow<Long?>(null)
     val lyricPreviewSongId = _lyricPreviewSongId.asStateFlow()
@@ -645,6 +667,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setPlaylistCover(playlistId: String, uri: Uri?) {
+        viewModelScope.launch {
+            repository.setPlaylistCover(playlistId, uri)
+        }
+    }
+
     fun createPlaylist(name: String) {
         viewModelScope.launch {
             repository.createPlaylist(name)
@@ -681,7 +709,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .setTitle(title)
                     .setArtist(artist)
                     .setAlbumTitle(album)
-                    .setArtworkUri(albumArtUri)
+                    .setArtworkUri(if (trackNumber > 0 || discNumber > 1) albumArtUri else uri)
                     .setExtras(extras)
                     .build()
             )

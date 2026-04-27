@@ -40,7 +40,7 @@ import com.igorthepadna.play_pause.data.Playlist
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.ui.components.AlbumCard
 import com.igorthepadna.play_pause.ui.components.CategoryViewMode
-import com.igorthepadna.play_pause.ui.components.CompactSongItem
+import com.igorthepadna.play_pause.ui.components.UniversalSongItem
 import com.igorthepadna.play_pause.ui.components.SongItem
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
@@ -59,6 +59,8 @@ fun PlaylistDetailView(
     onSwipePlayNext: (Song) -> Unit,
     onSwipeAddToPlaylist: (Song) -> Unit,
     onNavigateToArtist: (String) -> Unit = {},
+    onEditCover: () -> Unit = {},
+    onAddSongs: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MainViewModel? = null
 ) {
@@ -71,8 +73,9 @@ fun PlaylistDetailView(
     val columns = settings.columns
 
     val firstSongArtwork = remember(playlistSongs) { playlistSongs.firstOrNull()?.albumArtUri }
+    val effectiveArtworkUri = playlist.coverUri ?: firstSongArtwork
     val artworkColors = rememberArtworkColors(
-        artworkUri = firstSongArtwork,
+        artworkUri = effectiveArtworkUri,
         defaultPrimary = MaterialTheme.colorScheme.surface,
         defaultSecondary = MaterialTheme.colorScheme.primary
     )
@@ -94,112 +97,133 @@ fun PlaylistDetailView(
 
         val effectiveColumns = if (viewMode == CategoryViewMode.GRID) columns else 1
 
-        if (playlistSongs.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.PlaylistPlay,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        "No songs in this playlist",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(Modifier.height(24.dp))
-                    Button(onClick = onBack) {
-                        Text("Go Back")
-                    }
-                }
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Fixed(effectiveColumns),
+            contentPadding = bottomPadding,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .verticalScrollbar(gridState, padding = bottomPadding)
+        ) {
+            item(span = { GridItemSpan(effectiveColumns) }) {
+                PlaylistHighFidelityHeader(
+                    playlist = playlist,
+                    songCount = playlistSongs.size,
+                    artworkUri = effectiveArtworkUri,
+                    albumArtMap = albumArtMap,
+                    onBack = onBack,
+                    onPlay = { onPlaySongs(playlistSongs, 0, false) },
+                    onShuffle = { onPlaySongs(playlistSongs, 0, true) },
+                    onEditCover = onEditCover
+                )
             }
-        } else {
-            LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Fixed(effectiveColumns),
-                contentPadding = bottomPadding,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .verticalScrollbar(gridState, padding = bottomPadding)
-            ) {
+
+            if (playlistSongs.isEmpty()) {
                 item(span = { GridItemSpan(effectiveColumns) }) {
-                    PlaylistHighFidelityHeader(
-                        playlist = playlist,
-                        songCount = playlistSongs.size,
-                        artworkUri = firstSongArtwork,
-                        onBack = onBack,
-                        onPlay = { onPlaySongs(playlistSongs, 0, false) },
-                        onShuffle = { onPlaySongs(playlistSongs, 0, true) }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.PlaylistPlay,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "No songs in this playlist",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            } else if (viewMode == CategoryViewMode.GRID) {
+                gridItems(playlistSongs, key = { it.id }) { song ->
+                    val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                    AlbumCard(
+                        album = Album(
+                            id = song.albumId,
+                            title = song.title,
+                            artist = song.artist,
+                            artworkUri = albumArt,
+                            songs = listOf(song)
+                        ),
+                        onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
+                        modifier = Modifier.padding(4.dp),
+                        columns = columns,
+                        isPlaying = song.id == currentPlayingId
                     )
                 }
-
-                if (viewMode == CategoryViewMode.GRID) {
-                    gridItems(playlistSongs, key = { it.id }) { song ->
-                        val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
-                        AlbumCard(
-                            album = Album(
-                                id = song.albumId,
-                                title = song.title,
-                                artist = song.artist,
-                                artworkUri = albumArt,
-                                songs = listOf(song)
-                            ),
-                            onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
-                            modifier = Modifier.padding(4.dp),
-                            columns = columns,
-                            isPlaying = song.id == currentPlayingId
-                        )
-                    }
-                } else {
-                    item(span = { GridItemSpan(effectiveColumns) }) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                .padding(8.dp)
-                        ) {
-                            playlistSongs.forEach { song ->
-                                val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
-                                Box(modifier = Modifier.padding(vertical = 2.dp)) {
-                                    if (viewMode == CategoryViewMode.COMPACT) {
-                                        CompactSongItem(
-                                            song = song,
-                                            isPlaying = song.id == currentPlayingId,
-                                            onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
-                                            onDetailsClick = { onSongDetails(song) },
-                                            onSwipePlayNext = { onSwipePlayNext(song) },
-                                            onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
-                                            onNavigateToArtist = onNavigateToArtist,
-                                            showArtist = true,
-                                            containerColor = if (song.id == currentPlayingId) null else Color.Transparent,
-                                            artworkUri = albumArt
-                                        )
-                                    } else {
-                                        SongItem(
-                                            song = song,
-                                            isPlaying = song.id == currentPlayingId,
-                                            onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
-                                            onDetailsClick = { onSongDetails(song) },
-                                            onSwipePlayNext = { onSwipePlayNext(song) },
-                                            onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
-                                            onNavigateToArtist = onNavigateToArtist,
-                                            containerColor = if (song.id == currentPlayingId) null else Color.Transparent,
-                                            artworkUri = albumArt
-                                        )
-                                    }
+            } else {
+                item(span = { GridItemSpan(effectiveColumns) }) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                            .padding(8.dp)
+                    ) {
+                        playlistSongs.forEach { song ->
+                            val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                            Box(modifier = Modifier.padding(vertical = 2.dp)) {
+                                if (viewMode == CategoryViewMode.COMPACT) {
+                                    UniversalSongItem(
+                                        song = song,
+                                        isPlaying = song.id == currentPlayingId,
+                                        onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
+                                        onDetailsClick = { onSongDetails(song) },
+                                        onSwipePlayNext = { onSwipePlayNext(song) },
+                                        onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                                        onNavigateToArtist = onNavigateToArtist,
+                                        showArtist = true,
+                                        containerColor = if (song.id == currentPlayingId) null else Color.Transparent,
+                                        artworkUri = albumArt
+                                    )
+                                } else {
+                                    UniversalSongItem(
+                                        song = song,
+                                        isPlaying = song.id == currentPlayingId,
+                                        onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
+                                        onDetailsClick = { onSongDetails(song) },
+                                        onSwipePlayNext = { onSwipePlayNext(song) },
+                                        onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                                        onNavigateToArtist = onNavigateToArtist,
+                                        containerColor = if (song.id == currentPlayingId) null else Color.Transparent,
+                                        artworkUri = albumArt
+                                    )
                                 }
                             }
                         }
                     }
+                }
+            }
+
+            item(span = { GridItemSpan(effectiveColumns) }) {
+                Spacer(Modifier.height(24.dp))
+                Button(
+                    onClick = onAddSongs,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp)
+                        .padding(horizontal = 8.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = artworkColors.secondary.copy(alpha = 0.1f),
+                        contentColor = artworkColors.secondary
+                    ),
+                    border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.3f))
+                ) {
+                    Icon(Icons.Rounded.Add, null)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Add Songs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
                 }
             }
         }
@@ -272,9 +296,11 @@ fun PlaylistHighFidelityHeader(
     playlist: Playlist,
     songCount: Int,
     artworkUri: android.net.Uri?,
+    albumArtMap: Map<Long, android.net.Uri?>,
     onBack: () -> Unit,
     onPlay: () -> Unit,
-    onShuffle: () -> Unit
+    onShuffle: () -> Unit,
+    onEditCover: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -296,27 +322,26 @@ fun PlaylistHighFidelityHeader(
                 shape = RoundedCornerShape(32.dp),
                 tonalElevation = 12.dp,
                 shadowElevation = 20.dp,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                onClick = onEditCover
             ) {
-                if (artworkUri != null) {
-                    AsyncImage(
-                        model = artworkUri,
-                        contentDescription = playlist.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                PlaylistCoverImage(
+                    coverUri = playlist.coverUri,
+                    songCovers = playlist.songs.map { albumArtMap[it] },
+                    iconSize = 80.dp
+                )
+                
+                // Edit Overlay
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.BottomEnd
+                ) {
+                    Icon(
+                        Icons.Rounded.Edit,
+                        null,
+                        modifier = Modifier.padding(12.dp).size(24.dp),
+                        tint = Color.White.copy(alpha = 0.8f)
                     )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondaryContainer),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.PlaylistPlay,
-                            null,
-                            modifier = Modifier.size(80.dp),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
                 }
             }
 

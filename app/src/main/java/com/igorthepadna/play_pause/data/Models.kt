@@ -78,7 +78,8 @@ data class Playlist(
     val id: String,
     val name: String,
     val songs: List<Long> = emptyList(),
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val coverUri: Uri? = null
 )
 
 enum class LibraryFilter(val label: String, val icon: ImageVector) {
