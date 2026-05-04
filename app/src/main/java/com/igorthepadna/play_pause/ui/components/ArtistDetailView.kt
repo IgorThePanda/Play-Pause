@@ -343,7 +343,9 @@ fun CategoryDetailView(
     onNavigateToArtist: (String) -> Unit,
     onPlayAllSongs: (List<Song>, Int, Boolean?) -> Unit,
     onPlaySpecificSongs: (List<Song>, Int, Boolean?) -> Unit,
-    albumArtMap: Map<Long, android.net.Uri?> = emptyMap()
+    albumArtMap: Map<Long, android.net.Uri?> = emptyMap(),
+    currentPlayingId: Long = -1L,
+    currentPlayingSong: Song? = null
 ) {
     Scaffold(
         topBar = {
@@ -425,17 +427,19 @@ fun CategoryDetailView(
             when (title) {
                 "Albums" -> {
                     gridItems(mainAlbums) { album ->
+                        val isPlaying = album.id == currentPlayingSong?.albumId
                         when (viewMode) {
                             CategoryViewMode.GRID -> AlbumCard(
                                 album = album,
                                 onClick = { onAlbumClick(album) },
                                 onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns
+                                columns = columns,
+                                isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = album.songs.first(),
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onAlbumClick(album) },
                                 onDetailsClick = {},
                                 onSwipePlayNext = {},
@@ -447,7 +451,7 @@ fun CategoryDetailView(
                             )
                             CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = album.songs.first(),
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onAlbumClick(album) },
                                 onDetailsClick = {},
                                 onSwipePlayNext = {},
@@ -462,17 +466,19 @@ fun CategoryDetailView(
                 }
                 "Singles & EPs" -> {
                     gridItems(singles) { album ->
+                        val isPlaying = album.id == currentPlayingSong?.albumId
                         when (viewMode) {
                             CategoryViewMode.GRID -> AlbumCard(
                                 album = album,
                                 onClick = { onAlbumClick(album) },
                                 onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns
+                                columns = columns,
+                                isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = album.songs.first(),
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onAlbumClick(album) },
                                 onDetailsClick = {},
                                 onSwipePlayNext = {},
@@ -484,7 +490,7 @@ fun CategoryDetailView(
                             )
                             CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = album.songs.first(),
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onAlbumClick(album) },
                                 onDetailsClick = {},
                                 onSwipePlayNext = {},
@@ -500,6 +506,7 @@ fun CategoryDetailView(
                 "Unreleased" -> {
                     gridItems(unreleasedSongs) { song ->
                         val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                        val isPlaying = song.id == currentPlayingId
                         when (viewMode) {
                             CategoryViewMode.GRID -> AlbumCard(
                                 album = Album(
@@ -512,11 +519,12 @@ fun CategoryDetailView(
                                 onClick = { onSongClick(song) },
                                 onPlayClick = { onSongClick(song) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns
+                                columns = columns,
+                                isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = song,
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
@@ -527,7 +535,7 @@ fun CategoryDetailView(
                             )
                             CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = song,
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
@@ -541,6 +549,7 @@ fun CategoryDetailView(
                 "Featured In" -> {
                     gridItems(featuredSongs) { song ->
                         val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                        val isPlaying = song.id == currentPlayingId
                         when (viewMode) {
                             CategoryViewMode.GRID -> AlbumCard(
                                 album = Album(
@@ -553,11 +562,12 @@ fun CategoryDetailView(
                                 onClick = { onSongClick(song) },
                                 onPlayClick = { onSongClick(song) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns
+                                columns = columns,
+                                isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = song,
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
@@ -568,7 +578,7 @@ fun CategoryDetailView(
                             )
                             CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = song,
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
@@ -583,6 +593,7 @@ fun CategoryDetailView(
                     val allSongs = (artist.songs + artist.featuredSongs).sortedByDescending { it.dateAdded }
                     gridItems(allSongs) { song ->
                         val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                        val isPlaying = song.id == currentPlayingId
                         when (viewMode) {
                             CategoryViewMode.GRID -> AlbumCard(
                                 album = Album(
@@ -595,11 +606,12 @@ fun CategoryDetailView(
                                 onClick = { onSongClick(song) },
                                 onPlayClick = { onSongClick(song) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns
+                                columns = columns,
+                                isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = song,
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
@@ -610,7 +622,7 @@ fun CategoryDetailView(
                             )
                             CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = song,
-                                isPlaying = false,
+                                isPlaying = isPlaying,
                                 onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},

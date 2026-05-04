@@ -33,6 +33,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import com.igorthepadna.play_pause.MainViewModel
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import coil.compose.AsyncImage
+import com.igorthepadna.play_pause.R
 import androidx.compose.ui.graphics.Brush
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -124,16 +128,28 @@ fun FullScreenLyrics(
         parsedLyrics.indexOfLast { it.timestamp <= currentPosition }.coerceAtLeast(0)
     }
 
-    LaunchedEffect(isPlaying) {
-        while (true) {
-            currentPosition = player.currentPosition
-            delay(100)
+    LaunchedEffect(isPlaying, isCompactMode) {
+        if (!isCompactMode) {
+            while (true) {
+                currentPosition = player.currentPosition
+                delay(100)
+            }
         }
     }
 
-    LaunchedEffect(currentLyricIndex) {
-        if (parsedLyrics.isNotEmpty()) {
-            lyricsListState.animateScrollToItem(currentLyricIndex, scrollOffset = -200)
+    LaunchedEffect(currentLyricIndex, isCompactMode) {
+        if (!isCompactMode && parsedLyrics.isNotEmpty()) {
+            if (lyricsListState.firstVisibleItemIndex != currentLyricIndex) {
+                lyricsListState.animateScrollToItem(currentLyricIndex, scrollOffset = -200)
+            }
+        }
+    }
+
+    // Initial sync on open
+    LaunchedEffect(parsedLyrics, isCompactMode) {
+        if (!isCompactMode && parsedLyrics.isNotEmpty()) {
+            val index = parsedLyrics.indexOfLast { it.timestamp <= player.currentPosition }.coerceAtLeast(0)
+            lyricsListState.scrollToItem(index, scrollOffset = -400)
         }
     }
 
@@ -144,18 +160,6 @@ fun FullScreenLyrics(
         color = MaterialTheme.colorScheme.surface
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Gradient Background
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to artworkColors.primary.copy(alpha = if (useArtworkAccent) 0.15f else 0f),
-                            1f to MaterialTheme.colorScheme.surface
-                        )
-                    )
-            )
-
             Row(modifier = Modifier.fillMaxSize()) {
                 // Main Content Area
                 Column(
@@ -163,97 +167,119 @@ fun FullScreenLyrics(
                         .weight(1f)
                         .fillMaxHeight()
                         .statusBarsPadding()
-                        .navigationBarsPadding()
-                        .padding(start = 24.dp, top = 24.dp, bottom = 24.dp)
+                        .padding(start = 24.dp, top = 8.dp)
                 ) {
-                    // Header: Title and Artist
-                    Column(horizontalAlignment = Alignment.Start) {
-                        Text(
-                            displayTitle,
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = (-1).sp
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = Color.White
-                        )
-                        Text(
-                            text = displayArtist,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                color = artworkColors.secondary,
-                                fontWeight = FontWeight.Bold
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    // Header: Title and Artist Pill
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            AsyncImage(
+                                model = effectiveArtworkUri,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop,
+                                error = painterResource(R.drawable.ic_launcher_foreground)
+                            )
+                            Column {
+                                Text(
+                                    text = if (isCompactMode) "$displayTitle (Preview)" else displayTitle,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = (-0.5).sp
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = displayArtist,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        color = artworkColors.secondary,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                    // Lyrics
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (parsedLyrics.isNotEmpty()) {
-                            LazyColumn(
-                                state = lyricsListState,
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalAlignment = Alignment.Start,
-                                verticalArrangement = Arrangement.spacedBy(lyricLineSpacing.dp),
-                                contentPadding = PaddingValues(vertical = 100.dp)
-                            ) {
-                                itemsIndexed(parsedLyrics) { index, lyric ->
-                                    FullScreenLyricLineView(
-                                        line = lyric,
-                                        currentPosition = if (isCompactMode && lyricPreviewSongId != null) -1L else currentPosition,
-                                        isActive = !isCompactMode && index == currentLyricIndex,
-                                        artworkColors = artworkColors,
-                                        fontSize = lyricFontSize,
-                                        inactiveAlpha = if (isCompactMode) 1f else lyricInactiveAlpha,
-                                        activeScale = if (isCompactMode) 1f else lyricActiveScale,
-                                        lineSpacing = lyricLineSpacing,
-                                        onSeek = { timestamp ->
-                                            if (!isCompactMode) {
-                                                player.seekTo(timestamp)
-                                                currentPosition = timestamp
-                                            }
+                // Lyrics
+                Box(modifier = Modifier.weight(1f)) {
+                    if (parsedLyrics.isNotEmpty()) {
+                        LazyColumn(
+                            state = lyricsListState,
+                            modifier = Modifier.fillMaxSize().padding(end = 16.dp),
+                            horizontalAlignment = Alignment.Start,
+                            verticalArrangement = Arrangement.spacedBy(lyricLineSpacing.dp),
+                            contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp)
+                        ) {
+                            itemsIndexed(parsedLyrics) { index, lyric ->
+                                FullScreenLyricLineView(
+                                    line = lyric,
+                                    currentPosition = if (isCompactMode && lyricPreviewSongId != null) -1L else currentPosition,
+                                    isActive = !isCompactMode && index == currentLyricIndex,
+                                    artworkColors = artworkColors,
+                                    fontSize = lyricFontSize,
+                                    inactiveAlpha = if (isCompactMode) 1f else lyricInactiveAlpha,
+                                    activeScale = if (isCompactMode) 1f else lyricActiveScale,
+                                    lineSpacing = lyricLineSpacing,
+                                    onSeek = { timestamp ->
+                                        if (!isCompactMode) {
+                                            player.seekTo(timestamp)
+                                            currentPosition = timestamp
                                         }
-                                    )
-                                }
+                                    }
+                                )
                             }
-                        } else if (!displayLyrics.isNullOrBlank()) {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalAlignment = Alignment.Start,
-                                contentPadding = PaddingValues(vertical = 40.dp)
-                            ) {
-                                item {
-                                    Text(
-                                        text = displayLyrics,
-                                        style = MaterialTheme.typography.headlineMedium.copy(
-                                            fontSize = (lyricFontSize * 0.9f).sp,
-                                            fontWeight = FontWeight.Bold,
-                                            lineHeight = (lyricFontSize * 1.3).sp,
-                                            letterSpacing = (-0.5).sp
-                                        ),
-                                        color = Color.White.copy(alpha = 0.9f),
-                                        textAlign = TextAlign.Start
-                                    )
-                                }
+                        }
+                    } else if (!displayLyrics.isNullOrBlank()) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize().padding(end = 16.dp),
+                            horizontalAlignment = Alignment.Start,
+                            contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp)
+                        ) {
+                            item {
+                                Text(
+                                    text = displayLyrics,
+                                    style = MaterialTheme.typography.headlineMedium.copy(
+                                        fontSize = (lyricFontSize * 0.9f).sp,
+                                        fontWeight = FontWeight.Bold,
+                                        lineHeight = (lyricFontSize * 1.3).sp,
+                                        letterSpacing = (-0.5).sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                                    textAlign = TextAlign.Start,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
-                        } else {
+                        }
+                    } else {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(
                                         Icons.Rounded.MusicNote,
                                         null,
                                         modifier = Modifier.size(64.dp),
-                                        tint = Color.White.copy(alpha = 0.2f)
+                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
                                         "No lyrics available",
                                         style = MaterialTheme.typography.titleLarge,
-                                        color = Color.White.copy(alpha = 0.4f),
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                                         textAlign = TextAlign.Center
                                     )
                                 }
@@ -261,12 +287,15 @@ fun FullScreenLyrics(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     // Bottom: Playback Controls
                     if (!isCompactMode) {
                         Column(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                                .padding(bottom = 12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Row(
@@ -288,7 +317,7 @@ fun FullScreenLyrics(
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Rounded.SkipPrevious, null, modifier = Modifier.size(42.dp), tint = Color.White)
+                                    Icon(Icons.Rounded.SkipPrevious, null, modifier = Modifier.size(42.dp), tint = MaterialTheme.colorScheme.onSurface)
                                 }
 
                                 Spacer(modifier = Modifier.width(12.dp))
@@ -315,7 +344,7 @@ fun FullScreenLyrics(
                                     },
                                     tonalElevation = 12.dp,
                                     shadowElevation = 16.dp,
-                                    border = BorderStroke(2.dp, Color.White.copy(alpha = 0.2f))
+                                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
@@ -337,7 +366,7 @@ fun FullScreenLyrics(
                                         .clickable { player.seekToNext() },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Rounded.SkipNext, null, modifier = Modifier.size(42.dp), tint = Color.White)
+                                    Icon(Icons.Rounded.SkipNext, null, modifier = Modifier.size(42.dp), tint = MaterialTheme.colorScheme.onSurface)
                                 }
                             }
                             
@@ -353,9 +382,9 @@ fun FullScreenLyrics(
                             }
                         }
                     } else {
-                        // In compact mode, just a close button or a small indicator
+                        // In compact mode, just a close button, minimized padding
                         Box(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             IconButton(
@@ -371,37 +400,42 @@ fun FullScreenLyrics(
                 }
 
                 // Right: Scroll Bar & Progression
-                Column(
-                    modifier = Modifier
-                        .width(80.dp)
-                        .fillMaxHeight()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                        .padding(vertical = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    VerticalSquigglySlider(
-                        value = if (displayDuration > 0) (currentPosition.toFloat() / displayDuration).coerceIn(0f, 1f) else 0f,
-                        onValueChange = { newValue: Float ->
-                            if (!isCompactMode) {
-                                val newPos = (newValue * displayDuration).toLong()
-                                player.seekTo(newPos)
-                                currentPosition = newPos
-                            }
-                        },
-                        isPlaying = isPlaying && !isCompactMode,
-                        onDragStart = { if (!isCompactMode) player.pause() },
-                        onDragEnd = { if (!isCompactMode) player.play() },
-                        activeColor = artworkColors.secondary,
-                        inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                if (!isCompactMode) {
+                    Column(
                         modifier = Modifier
+                            .width(80.dp)
                             .fillMaxHeight()
-                            .width(64.dp)
-                    )
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                            .padding(vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Spacer(modifier = Modifier.height(32.dp))
 
-                    Spacer(modifier = Modifier.height(140.dp))
+                        VerticalSquigglySlider(
+                            value = if (displayDuration > 0) (currentPosition.toFloat() / displayDuration).coerceIn(0f, 1f) else 0f,
+                            onValueChange = { newValue: Float ->
+                                if (!isCompactMode) {
+                                    val newPos = (newValue * displayDuration).toLong()
+                                    player.seekTo(newPos)
+                                    currentPosition = newPos
+                                }
+                            },
+                            isPlaying = isPlaying && !isCompactMode,
+                            onDragStart = { if (!isCompactMode) player.pause() },
+                            onDragEnd = { if (!isCompactMode) player.play() },
+                            activeColor = artworkColors.secondary,
+                            inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(64.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(60.dp))
+                    }
+                } else {
+                    // Spacer for compact mode to maintain layout if needed, 
+                    // but we can just let the lyrics take more space
                 }
             }
         }
@@ -468,7 +502,7 @@ fun FullScreenLyricLineView(
                             lineHeight = (fontSize * 1.4).sp,
                             letterSpacing = (-1).sp
                         ),
-                        color = if (isWordCurrentlyPlaying) artworkColors.secondary else Color.White,
+                        color = if (isWordCurrentlyPlaying) artworkColors.secondary else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .graphicsLayer {
                                 scaleX = wordScale
@@ -493,9 +527,10 @@ fun FullScreenLyricLineView(
                     lineHeight = (fontSize * 1.4).sp,
                     letterSpacing = (-1).sp
                 ),
-                color = if (isActive) artworkColors.secondary else Color.White,
+                color = if (isActive) artworkColors.secondary else MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Start,
                 modifier = Modifier
+                    .fillMaxWidth()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,

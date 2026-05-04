@@ -638,12 +638,29 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                 },
                 onFolderClick = { path ->
                     val folderPath = path.substringBeforeLast("/")
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val clip = ClipData.newPlainText("Folder Path", folderPath)
-                    clipboard.setPrimaryClip(clip)
-                    scope.launch {
-                        snackbarHostState.currentSnackbarData?.dismiss()
-                        snackbarHostState.showSnackbar("Path copied to clipboard")
+                    val file = java.io.File(folderPath)
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(android.net.Uri.fromFile(file), "resource/folder")
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        try {
+                            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                                setDataAndType(android.net.Uri.fromFile(file), "*/*")
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                            }
+                            context.startActivity(intent)
+                        } catch (e2: Exception) {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("Folder Path", folderPath)
+                            clipboard.setPrimaryClip(clip)
+                            scope.launch {
+                                snackbarHostState.currentSnackbarData?.dismiss()
+                                snackbarHostState.showSnackbar("Path copied (no explorer found)")
+                            }
+                        }
                     }
                 },
                 onNavigateToArtist = { artistName ->
@@ -655,6 +672,18 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                         viewModel.setSelectedArtistName(artistName)
                         viewModel.setPlayerFullScreen(false)
                     }
+                    showDetailsSheet = false
+                },
+                onNavigateToAlbum = { albumId ->
+                    viewModel.clearSelections()
+                    viewModel.setSelectedAlbumId(albumId)
+                    viewModel.setPlayerFullScreen(false)
+                    showDetailsSheet = false
+                },
+                onNavigateToGenre = { genreName ->
+                    viewModel.clearSelections()
+                    viewModel.setSelectedGenreName(genreName)
+                    viewModel.setPlayerFullScreen(false)
                     showDetailsSheet = false
                 }
             )
@@ -673,8 +702,20 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                 playlists = playlists,
                 artworkColors = playlistArtworkColors,
                 onDismiss = { showPlaylistSheet = false },
-                onPlaylistSelected = { id ->
-                    viewModel.addToPlaylist(id, selectedSongForPlaylist!!.id)
+                onTogglePlaylist = { id, isAlreadyIn ->
+                    if (isAlreadyIn) {
+                        viewModel.removeFromPlaylist(id, selectedSongForPlaylist!!.id)
+                        scope.launch {
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            snackbarHostState.showSnackbar("Removed from playlist")
+                        }
+                    } else {
+                        viewModel.addToPlaylist(id, selectedSongForPlaylist!!.id)
+                        scope.launch {
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            snackbarHostState.showSnackbar("Added to playlist")
+                        }
+                    }
                     showPlaylistSheet = false
                 },
                 onCreatePlaylist = { name ->

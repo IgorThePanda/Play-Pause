@@ -136,7 +136,29 @@ fun AlbumDetailView(
                                     showArtist = song.artist != album.artist,
                                     shape = RoundedCornerShape(16.dp),
                                     artworkUri = album.artworkUri,
-                                    containerColor = if (song.id == currentPlayingId) null else Color.Transparent
+                                    containerColor = if (song.id == currentPlayingId) artworkColors.secondary.copy(alpha = 0.25f) else Color.Transparent,
+                                    leadingContent = {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (song.trackNumber > 0) {
+                                                Text(
+                                                    text = song.trackNumber.toString(),
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = artworkColors.secondary.copy(alpha = 0.8f)
+                                                )
+                                            } else {
+                                                Icon(
+                                                    Icons.Rounded.MusicNote,
+                                                    null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = artworkColors.secondary.copy(alpha = 0.5f)
+                                                )
+                                            }
+                                        }
+                                    }
                                 )
                             }
                         }

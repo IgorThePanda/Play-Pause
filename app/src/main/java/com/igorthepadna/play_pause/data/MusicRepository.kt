@@ -14,6 +14,9 @@ import com.igorthepadna.play_pause.data.db.AlbumEntity
 import com.igorthepadna.play_pause.data.db.AppDatabase
 import com.igorthepadna.play_pause.data.db.ArtistEntity
 import com.igorthepadna.play_pause.data.db.PlaylistBackup
+import com.igorthepadna.play_pause.data.db.PlaylistBackupV2
+import com.igorthepadna.play_pause.data.db.FullBackupV2
+import com.igorthepadna.play_pause.data.db.SongBackup
 import com.igorthepadna.play_pause.data.db.PlaylistEntity
 import com.igorthepadna.play_pause.data.db.PlaylistSongEntity
 import com.igorthepadna.play_pause.data.db.SongEntity
@@ -61,6 +64,10 @@ class MusicRepository(private val context: Context) {
     }
 
     suspend fun getSongs(useCache: Boolean = true, onlyMusicFolder: Boolean = false): List<Song> = withContext(Dispatchers.IO) {
+        if (useCache && cachedSongs != null) {
+            return@withContext cachedSongs!!
+        }
+        
         if (useCache) {
             val cached = playlistDao.getAllCachedSongs()
             if (cached.isNotEmpty()) {
@@ -267,6 +274,10 @@ class MusicRepository(private val context: Context) {
     )
 
     suspend fun getAlbums(songs: List<Song>, useCache: Boolean = true): List<Album> = withContext(Dispatchers.IO) {
+        if (useCache && cachedAlbums != null) {
+            return@withContext cachedAlbums!!
+        }
+        
         if (useCache) {
             val cached = playlistDao.getAllCachedAlbums()
             if (cached.isNotEmpty()) {
@@ -329,6 +340,10 @@ class MusicRepository(private val context: Context) {
     }
 
     suspend fun getArtists(songs: List<Song>, albums: List<Album>, useCache: Boolean = true): List<Artist> = withContext(Dispatchers.IO) {
+        if (useCache && cachedArtists != null) {
+            return@withContext cachedArtists!!
+        }
+
         if (useCache) {
             val cached = playlistDao.getAllCachedArtists()
             if (cached.isNotEmpty()) {
@@ -365,12 +380,12 @@ class MusicRepository(private val context: Context) {
         val dirCache = mutableMapOf<String, Map<String, File>>()
 
         val artists = artistMap.map { (name, artistSongs) ->
-            val artistAlbums = (albumMap[name] ?: emptyList()) + 
-                albums.filter { it.songs.any { s -> 
+            val artistAlbums = (albumMap[name] ?: emptyList()) +
+                albums.filter { it.songs.any { s ->
                     val songArtists = splitArtists(s.artist)
                     songArtists.firstOrNull() == name
                 } }
-            
+
             val distinctAlbums = artistAlbums.distinctBy { it.id }
             val thumbnailUri = findArtistCoverOptimized(name, artistSongs, dirCache) 
                 ?: distinctAlbums.firstOrNull { it.artworkUri != null }?.artworkUri
@@ -543,6 +558,18 @@ class MusicRepository(private val context: Context) {
         playlistDao.addSongToPlaylist(playlistId, songId)
     }
 
+    suspend fun getPlaylistSync(playlistId: String): Playlist? {
+        return playlistDao.getPlaylistById(playlistId)?.let {
+            Playlist(
+                id = it.id,
+                name = it.name,
+                isFavorite = it.isFavorite,
+                songs = emptyList(),
+                coverUri = it.coverUri?.let { uri -> Uri.parse(uri) }
+            )
+        }
+    }
+
     suspend fun removeSongFromPlaylist(playlistId: String, songId: Long) {
         playlistDao.removeSongFromPlaylist(playlistId, songId)
     }
@@ -576,8 +603,29 @@ class MusicRepository(private val context: Context) {
 
     suspend fun exportPlaylists(outputStream: OutputStream) {
         val playlists = playlistDao.getAllPlaylistsSync()
-        val songs = playlistDao.getAllPlaylistSongsSync()
-        val backup = PlaylistBackup(playlists, songs)
+        val allPlaylistBackups = playlists.map { playlistEntity ->
+            val songsWithEntity = playlistDao.getPlaylistWithSongsSync(playlistEntity.id)
+            val songs = songsWithEntity?.songs?.mapNotNull { ps ->
+                cachedSongs?.find { it.id == ps.songId }?.let { song ->
+                    SongBackup(song.title, song.artist, song.album, song.duration, song.path, song.id)
+                }
+            } ?: emptyList()
+            PlaylistBackupV2(playlistEntity, songs)
+        }
+        val backup = FullBackupV2(allPlaylistBackups)
+        val json = Json.encodeToString(backup)
+        outputStream.use { it.write(json.toByteArray()) }
+    }
+
+    suspend fun exportSinglePlaylist(playlistId: String, outputStream: OutputStream) {
+        val playlistEntity = playlistDao.getPlaylistById(playlistId) ?: return
+        val songsWithEntity = playlistDao.getPlaylistWithSongsSync(playlistId)
+        val songs = songsWithEntity?.songs?.mapNotNull { ps ->
+            cachedSongs?.find { it.id == ps.songId }?.let { song ->
+                SongBackup(song.title, song.artist, song.album, song.duration, song.path, song.id)
+            }
+        } ?: emptyList()
+        val backup = PlaylistBackupV2(playlistEntity, songs)
         val json = Json.encodeToString(backup)
         outputStream.use { it.write(json.toByteArray()) }
     }
@@ -585,6 +633,21 @@ class MusicRepository(private val context: Context) {
     suspend fun importPlaylists(inputStream: InputStream) {
         val jsonString = inputStream.bufferedReader().use { it.readText() }
         try {
+            // Try FullBackupV2 first
+            try {
+                val fullBackup = Json.decodeFromString<FullBackupV2>(jsonString)
+                fullBackup.playlists.forEach { importPlaylistV2(it) }
+                return
+            } catch (e: Exception) { /* Not V2 Full */ }
+
+            // Try SinglePlaylistV2
+            try {
+                val singleBackup = Json.decodeFromString<PlaylistBackupV2>(jsonString)
+                importPlaylistV2(singleBackup)
+                return
+            } catch (e: Exception) { /* Not V2 Single */ }
+
+            // Fallback to old V1
             val backup = Json.decodeFromString<PlaylistBackup>(jsonString)
             playlistDao.insertPlaylists(backup.playlists)
             playlistDao.insertPlaylistSongs(backup.playlistSongs)
@@ -592,6 +655,39 @@ class MusicRepository(private val context: Context) {
             // If not JSON, try parsing as M3U
             importFromM3U(jsonString)
         }
+    }
+
+    private suspend fun importPlaylistV2(backup: PlaylistBackupV2) {
+        // Use a new ID if it already exists to avoid collisions or overwriting
+        val existing = playlistDao.getPlaylistById(backup.playlist.id)
+        val playlistId = if (existing != null) UUID.randomUUID().toString() else backup.playlist.id
+        val playlistName = if (existing != null) "${backup.playlist.name} (Imported)" else backup.playlist.name
+        
+        playlistDao.insertPlaylist(backup.playlist.copy(id = playlistId, name = playlistName))
+        
+        backup.songs.forEachIndexed { index, songBackup ->
+            val songId = findSongRobustly(songBackup)
+            if (songId != null) {
+                playlistDao.insertPlaylistSong(PlaylistSongEntity(playlistId, songId, index))
+            }
+        }
+    }
+
+    private fun findSongRobustly(backup: SongBackup): Long? {
+        // 1. Try ID first
+        cachedSongs?.find { it.id == backup.mediaStoreId }?.let { return it.id }
+        
+        // 2. Try Path
+        cachedSongs?.find { it.path == backup.path }?.let { return it.id }
+        
+        // 3. Try Metadata (Title + Artist + Duration approx)
+        cachedSongs?.find { 
+            it.title.equals(backup.title, true) && 
+            it.artist.equals(backup.artist, true) &&
+            Math.abs(it.duration - backup.duration) < 2000 // 2s tolerance
+        }?.let { return it.id }
+        
+        return null
     }
 
     suspend fun getLyrics(path: String): String? = withContext(Dispatchers.IO) {

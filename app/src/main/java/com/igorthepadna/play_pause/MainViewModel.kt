@@ -28,6 +28,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import java.io.InputStream
 import java.io.OutputStream
@@ -69,7 +72,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _player = MutableStateFlow<Player?>(null)
     val player = _player.asStateFlow()
 
-    private val _currentPlayingId = MutableStateFlow(-1L)
+    private val _currentPlayingId = MutableStateFlow(
+        prefs.getLong("last_played_id", -1L)
+    )
     val currentPlayingId = _currentPlayingId.asStateFlow()
 
     private val _currentLyrics = MutableStateFlow<String?>(null)
@@ -327,15 +332,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // UI Persistence
+    @Serializable
     sealed class Selection {
+        @Serializable
         data class Album(val id: Long) : Selection()
+        @Serializable
         data class Artist(val name: String) : Selection()
+        @Serializable
         data class ArtistCategory(val artistName: String, val category: String) : Selection()
+        @Serializable
         data class Playlist(val id: String) : Selection()
+        @Serializable
         data class Genre(val name: String) : Selection()
     }
 
-    private val _selectionStack = MutableStateFlow<List<Selection>>(emptyList())
+    private val _selectionStack = MutableStateFlow<List<Selection>>(
+        runCatching { 
+            Json.decodeFromString<List<Selection>>(prefs.getString("selection_stack", "[]")!!)
+        }.getOrDefault(emptyList())
+    )
     val selectionStack = _selectionStack.asStateFlow()
 
     val selectedDetail = combine(
@@ -380,11 +395,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearSelections() {
         _selectionStack.value = emptyList()
+        saveSelectionStack()
     }
 
     fun popSelection() {
         if (_selectionStack.value.isNotEmpty()) {
             _selectionStack.value = _selectionStack.value.dropLast(1)
+            saveSelectionStack()
         }
     }
 
@@ -393,6 +410,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             clearSelections()
         } else {
             _selectionStack.value = _selectionStack.value + Selection.Album(id)
+            saveSelectionStack()
         }
     }
 
@@ -401,11 +419,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             clearSelections()
         } else {
             _selectionStack.value = _selectionStack.value + Selection.Artist(name)
+            saveSelectionStack()
         }
     }
 
     fun setSelectedArtistCategory(artistName: String, category: String) {
         _selectionStack.value = _selectionStack.value + Selection.ArtistCategory(artistName, category)
+        saveSelectionStack()
     }
 
     fun setSelectedPlaylistId(id: String?) {
@@ -413,6 +433,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             clearSelections()
         } else {
             _selectionStack.value = _selectionStack.value + Selection.Playlist(id)
+            saveSelectionStack()
         }
     }
 
@@ -421,7 +442,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             clearSelections()
         } else {
             _selectionStack.value = _selectionStack.value + Selection.Genre(name)
+            saveSelectionStack()
         }
+    }
+
+    private fun saveSelectionStack() {
+        prefs.edit().putString("selection_stack", Json.encodeToString(_selectionStack.value)).apply()
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -480,8 +506,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setCurrentFilter(filter: LibraryFilter) {
-        _currentFilter.value = filter
-        prefs.edit().putString("last_filter", filter.name).apply()
+        if (_currentFilter.value != filter) {
+            _currentFilter.value = filter
+            clearSelections()
+            prefs.edit().putString("last_filter", filter.name).apply()
+        }
     }
 
     fun setPlayerFullScreen(full: Boolean) {
@@ -504,6 +533,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else if (!visible) {
             _viewingLyrics.value = null
+            _lyricPreviewSongId.value = null
+            _isCompactLyricsMode.value = false
         }
     }
 
@@ -511,6 +542,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _tabSortSettings.value = _tabSortSettings.value.toMutableMap().apply {
             put(filter, settings)
         }
+        prefs.edit().apply {
+            putString("sort_type_${filter.name}", settings.sortType.name)
+            putString("sort_order_${filter.name}", settings.sortOrder.name)
+            putBoolean("only_album_artists_${filter.name}", settings.showOnlyAlbumArtists)
+        }.apply()
     }
 
     fun updateViewModeSettings(key: String, settings: ViewModeSettings) {
@@ -723,9 +759,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            _currentPlayingId.value = mediaItem?.mediaId?.toLongOrNull() ?: -1L
+            val id = mediaItem?.mediaId?.toLongOrNull() ?: -1L
+            _currentPlayingId.value = id
+            prefs.edit().putLong("last_played_id", id).apply()
             // Don't clear manually here, let loadLyricsForCurrentSong handle it gracefully
             loadLyricsForCurrentSong()
+        }
+
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            savePlaybackPosition()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) {
+                savePlaybackPosition()
+            }
+        }
+    }
+
+    private fun savePlaybackPosition() {
+        val player = _player.value ?: return
+        if (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING) {
+            prefs.edit().putLong("last_played_position", player.currentPosition).apply()
         }
     }
 
@@ -738,6 +793,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun exportPlaylists(outputStream: OutputStream) {
         viewModelScope.launch {
             repository.exportPlaylists(outputStream)
+        }
+    }
+
+    fun exportPlaylistsToFolder(playlistIds: List<String>, folderUri: android.net.Uri, contentResolver: android.content.ContentResolver) {
+        viewModelScope.launch {
+            playlistIds.forEach { id ->
+                val playlist = repository.getPlaylistSync(id) ?: return@forEach
+                val filename = "playlist_${playlist.name.replace(" ", "_")}.json"
+                try {
+                    val treeUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                        folderUri, 
+                        android.provider.DocumentsContract.getTreeDocumentId(folderUri)
+                    )
+                    val fileUri = android.provider.DocumentsContract.createDocument(
+                        contentResolver, 
+                        treeUri, 
+                        "application/json", 
+                        filename
+                    )
+                    if (fileUri != null) {
+                        contentResolver.openOutputStream(fileUri)?.use { os ->
+                            repository.exportSinglePlaylist(id, os)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 

@@ -65,13 +65,6 @@ fun PlaylistDetailView(
     viewModel: MainViewModel? = null
 ) {
     val gridState = rememberLazyGridState()
-    val categoryKey = "playlist_${playlist.id}"
-    val viewModeSettings by (viewModel?.viewModeSettings?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
-    val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
-    
-    val viewMode = settings.viewMode
-    val columns = settings.columns
-
     val firstSongArtwork = remember(playlistSongs) { playlistSongs.firstOrNull()?.albumArtUri }
     val effectiveArtworkUri = playlist.coverUri ?: firstSongArtwork
     val artworkColors = rememberArtworkColors(
@@ -95,11 +88,9 @@ fun PlaylistDetailView(
             bottom = 140.dp
         )
 
-        val effectiveColumns = if (viewMode == CategoryViewMode.GRID) columns else 1
-
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(effectiveColumns),
+            columns = GridCells.Fixed(1),
             contentPadding = bottomPadding,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -108,7 +99,7 @@ fun PlaylistDetailView(
                 .statusBarsPadding()
                 .verticalScrollbar(gridState, padding = bottomPadding)
         ) {
-            item(span = { GridItemSpan(effectiveColumns) }) {
+            item {
                 PlaylistHighFidelityHeader(
                     playlist = playlist,
                     songCount = playlistSongs.size,
@@ -122,7 +113,7 @@ fun PlaylistDetailView(
             }
 
             if (playlistSongs.isEmpty()) {
-                item(span = { GridItemSpan(effectiveColumns) }) {
+                item {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -145,25 +136,8 @@ fun PlaylistDetailView(
                         }
                     }
                 }
-            } else if (viewMode == CategoryViewMode.GRID) {
-                gridItems(playlistSongs, key = { it.id }) { song ->
-                    val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
-                    AlbumCard(
-                        album = Album(
-                            id = song.albumId,
-                            title = song.title,
-                            artist = song.artist,
-                            artworkUri = albumArt,
-                            songs = listOf(song)
-                        ),
-                        onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
-                        modifier = Modifier.padding(4.dp),
-                        columns = columns,
-                        isPlaying = song.id == currentPlayingId
-                    )
-                }
             } else {
-                item(span = { GridItemSpan(effectiveColumns) }) {
+                item {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -174,39 +148,24 @@ fun PlaylistDetailView(
                         playlistSongs.forEach { song ->
                             val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
                             Box(modifier = Modifier.padding(vertical = 2.dp)) {
-                                if (viewMode == CategoryViewMode.COMPACT) {
-                                    UniversalSongItem(
-                                        song = song,
-                                        isPlaying = song.id == currentPlayingId,
-                                        onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
-                                        onDetailsClick = { onSongDetails(song) },
-                                        onSwipePlayNext = { onSwipePlayNext(song) },
-                                        onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
-                                        onNavigateToArtist = onNavigateToArtist,
-                                        showArtist = true,
-                                        containerColor = if (song.id == currentPlayingId) null else Color.Transparent,
-                                        artworkUri = albumArt
-                                    )
-                                } else {
-                                    UniversalSongItem(
-                                        song = song,
-                                        isPlaying = song.id == currentPlayingId,
-                                        onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
-                                        onDetailsClick = { onSongDetails(song) },
-                                        onSwipePlayNext = { onSwipePlayNext(song) },
-                                        onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
-                                        onNavigateToArtist = onNavigateToArtist,
-                                        containerColor = if (song.id == currentPlayingId) null else Color.Transparent,
-                                        artworkUri = albumArt
-                                    )
-                                }
+                                UniversalSongItem(
+                                    song = song,
+                                    isPlaying = song.id == currentPlayingId,
+                                    onClick = { onPlaySongs(playlistSongs, playlistSongs.indexOf(song), null) },
+                                    onDetailsClick = { onSongDetails(song) },
+                                    onSwipePlayNext = { onSwipePlayNext(song) },
+                                    onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                                    onNavigateToArtist = onNavigateToArtist,
+                                    containerColor = if (song.id == currentPlayingId) null else Color.Transparent,
+                                    artworkUri = albumArt
+                                )
                             }
                         }
                     }
                 }
             }
 
-            item(span = { GridItemSpan(effectiveColumns) }) {
+            item {
                 Spacer(Modifier.height(24.dp))
                 Button(
                     onClick = onAddSongs,
@@ -228,49 +187,6 @@ fun PlaylistDetailView(
             }
         }
 
-        // Top Controls (View Mode / Columns) - Floating
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 8.dp, end = 8.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (viewMode == CategoryViewMode.GRID) {
-                TextButton(
-                    onClick = {
-                        val newColumns = if (columns >= 4) 1 else columns + 1
-                        viewModel?.updateViewModeSettings(categoryKey, settings.copy(columns = newColumns))
-                    },
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Text("$columns", fontWeight = FontWeight.Black, fontSize = 16.sp)
-                }
-            }
-
-            IconButton(onClick = {
-                val newMode = when (viewMode) {
-                    CategoryViewMode.DETAILED -> CategoryViewMode.COMPACT
-                    CategoryViewMode.COMPACT -> CategoryViewMode.GRID
-                    CategoryViewMode.GRID -> CategoryViewMode.DETAILED
-                }
-                viewModel?.updateViewModeSettings(categoryKey, settings.copy(viewMode = newMode))
-            }) {
-                Icon(
-                    when (viewMode) {
-                        CategoryViewMode.GRID -> Icons.Rounded.GridView
-                        CategoryViewMode.DETAILED -> Icons.Rounded.ViewStream
-                        CategoryViewMode.COMPACT -> Icons.Rounded.ViewHeadline
-                    },
-                    contentDescription = "View Mode",
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
 
         AnimatedVisibility(
             visible = showBanner,

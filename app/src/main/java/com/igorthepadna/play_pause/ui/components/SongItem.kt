@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MusicNote
@@ -408,7 +409,7 @@ fun PlaylistSelectionSheet(
     song: Song,
     playlists: List<Playlist>,
     artworkColors: ArtworkColors,
-    onPlaylistSelected: (String) -> Unit,
+    onTogglePlaylist: (String, Boolean) -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onFavoriteClick: () -> Unit,
     onDismiss: () -> Unit
@@ -545,12 +546,16 @@ fun PlaylistSelectionSheet(
         )
 
         playlists.filter { !it.isFavorite }.forEach { playlist ->
+            val isAlreadyIn = remember(playlist.songs, song.id) {
+                playlist.songs.contains(song.id)
+            }
+
             Surface(
-                onClick = { onPlaylistSelected(playlist.id) },
+                onClick = { onTogglePlaylist(playlist.id, isAlreadyIn) },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 shape = RoundedCornerShape(20.dp),
-                color = artworkColors.secondary.copy(alpha = 0.05f),
-                border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.1f))
+                color = if (isAlreadyIn) Color.Red.copy(alpha = 0.05f) else artworkColors.secondary.copy(alpha = 0.05f),
+                border = BorderStroke(1.dp, if (isAlreadyIn) Color.Red.copy(alpha = 0.1f) else artworkColors.secondary.copy(alpha = 0.1f))
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
@@ -560,21 +565,22 @@ fun PlaylistSelectionSheet(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(artworkColors.primary.copy(alpha = 0.15f)),
+                            .background(if (isAlreadyIn) Color.Red.copy(alpha = 0.15f) else artworkColors.primary.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.AutoMirrored.Rounded.PlaylistPlay, 
-                            contentDescription = null, 
-                            tint = artworkColors.primary,
+                            if (isAlreadyIn) Icons.Rounded.Close else Icons.AutoMirrored.Rounded.PlaylistPlay,
+                            contentDescription = null,
+                            tint = if (isAlreadyIn) Color.Red else artworkColors.primary,
                             modifier = Modifier.size(24.dp)
                         )
                     }
                     Spacer(Modifier.width(16.dp))
                     Text(
-                        playlist.name, 
-                        style = MaterialTheme.typography.bodyLarge, 
-                        fontWeight = FontWeight.Bold
+                        playlist.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isAlreadyIn) Color.Red else Color.Unspecified
                     )
                 }
             }

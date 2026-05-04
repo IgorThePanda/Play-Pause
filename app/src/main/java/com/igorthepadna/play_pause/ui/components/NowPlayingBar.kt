@@ -6,7 +6,6 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -81,8 +80,13 @@ fun NowPlayingBar(
     var isQuickNavActive by remember { mutableStateOf(false) }
     var quickNavSelectedIndex by remember { mutableIntStateOf(-1) }
     var quickNavDragY by remember { mutableFloatStateOf(0f) }
-    val haptic = LocalHapticFeedback.current
+    
+    // Skip Action States
+    var isSkipDragging by remember { mutableStateOf(false) }
+    var skipDragAction by remember { mutableStateOf(DragAction.NONE) }
+    var skipTotalDragOffset by remember { mutableStateOf(Offset.Zero) }
 
+    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
 
@@ -128,12 +132,10 @@ fun NowPlayingBar(
         }
     }
 
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { settledPage ->
-            val newFilter = filters.getOrNull(settledPage)
-            if (newFilter != null && newFilter != currentFilter) {
-                onFilterSelected(newFilter)
-            }
+    LaunchedEffect(pagerState.settledPage) {
+        val newFilter = filters.getOrNull(pagerState.settledPage)
+        if (newFilter != null && newFilter != currentFilter) {
+            onFilterSelected(newFilter)
         }
     }
 
@@ -166,7 +168,13 @@ fun NowPlayingBar(
                         onClick = onClick,
                         onDrag = onDrag,
                         onDragStopped = onDragStopped,
-                        onNavigateToArtist = onNavigateToArtist
+                        onNavigateToArtist = onNavigateToArtist,
+                        isSkipDragging = isSkipDragging,
+                        onIsSkipDraggingChange = { isSkipDragging = it },
+                        skipDragAction = skipDragAction,
+                        onSkipDragActionChange = { skipDragAction = it },
+                        skipTotalDragOffset = skipTotalDragOffset,
+                        onSkipTotalDragOffsetChange = { skipTotalDragOffset = it }
                     )
                 }
 
@@ -343,7 +351,6 @@ fun NowPlayingBar(
                                                     Text(
                                                         filter.label,
                                                         style = MaterialTheme.typography.labelMedium,
-                                                        fontWeight = FontWeight.Bold,
                                                         color = activeColor,
                                                         maxLines = 1
                                                     )
@@ -379,6 +386,17 @@ fun NowPlayingBar(
                 .align(Alignment.BottomCenter)
                 .offset(y = (-70).dp)
         )
+
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val overlayThreshold = with(density) { 32.dp.toPx() }
+        SkipActionOverlay(
+            action = skipDragAction,
+            visible = isSkipDragging && skipTotalDragOffset.y < -overlayThreshold,
+            artworkColors = artworkColors,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .offset(y = (-140).dp)
+        )
     }
 }
 
@@ -393,15 +411,18 @@ private fun PlaybackSection(
     onClick: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragStopped: (Float) -> Unit,
-    onNavigateToArtist: ((String) -> Unit)?
+    onNavigateToArtist: ((String) -> Unit)?,
+    isSkipDragging: Boolean,
+    onIsSkipDraggingChange: (Boolean) -> Unit,
+    skipDragAction: DragAction,
+    onSkipDragActionChange: (DragAction) -> Unit,
+    skipTotalDragOffset: Offset,
+    onSkipTotalDragOffsetChange: (Offset) -> Unit
 ) {
     var isPlaying by remember { mutableStateOf(player?.isPlaying ?: false) }
     var currentPosition by remember { mutableLongStateOf(player?.currentPosition ?: 0L) }
     var duration by remember { mutableLongStateOf(player?.duration ?: 0L) }
-    var isDragging by remember { mutableStateOf(false) }
-    var dragAction by remember { mutableStateOf(DragAction.NONE) }
-    var totalDragOffset by remember { mutableStateOf(Offset.Zero) }
-    
+
     val haptic = LocalHapticFeedback.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val showTimer by viewModel?.showTimerOnPlayButton?.collectAsState(false) ?: remember { mutableStateOf(false) }
@@ -421,8 +442,8 @@ private fun PlaybackSection(
         onDispose { player.removeListener(listener) }
     }
 
-    LaunchedEffect(isPlaying, isDragging, player) {
-        if (player == null || !isPlaying || isDragging) return@LaunchedEffect
+    LaunchedEffect(isPlaying, isSkipDragging, player) {
+        if (player == null || !isPlaying || isSkipDragging) return@LaunchedEffect
         while (true) {
             currentPosition = player.currentPosition
             duration = player.duration
@@ -432,7 +453,7 @@ private fun PlaybackSection(
 
     val progress by animateFloatAsState(
         targetValue = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f,
-        animationSpec = if (isDragging) snap() else tween(1000, easing = LinearEasing),
+        animationSpec = if (isSkipDragging) snap() else tween(1000, easing = LinearEasing),
         label = "progress_animation"
     )
 
@@ -460,24 +481,25 @@ private fun PlaybackSection(
                 }
                 .draggable(
                     orientation = Orientation.Vertical,
-                    state = rememberDraggableState { delta -> onDrag(delta) },
-                    onDragStopped = { velocity -> onDragStopped(velocity) }
+                    state = rememberDraggableState { delta -> if (!isSkipDragging) onDrag(delta) },
+                    onDragStopped = { velocity -> if (!isSkipDragging) onDragStopped(velocity) }
                 )
                 .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = { }
+                    onClick = onClick
                 )
                 .pointerInput(Unit) {
+                    var localAccumulatedOffset = Offset.Zero
                     detectDragGesturesAfterLongPress(
                         onDragStart = { 
-                            isDragging = true
-                            totalDragOffset = Offset.Zero
-                            dragAction = DragAction.NONE
+                            localAccumulatedOffset = Offset.Zero
+                            onIsSkipDraggingChange(true)
+                            onSkipTotalDragOffsetChange(Offset.Zero)
+                            onSkipDragActionChange(DragAction.NONE)
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         },
                         onDragEnd = {
-                            isDragging = false
-                            when (dragAction) {
+                            onIsSkipDraggingChange(false)
+                            when (skipDragAction) {
                                 DragAction.PREVIOUS -> {
                                     if (player?.hasPreviousMediaItem() == true) {
                                         player.seekToPreviousMediaItem()
@@ -488,33 +510,34 @@ private fun PlaybackSection(
                                 DragAction.NEXT -> player?.seekToNext()
                                 DragAction.NONE -> player?.seekTo(currentPosition)
                             }
-                            dragAction = DragAction.NONE
+                            onSkipDragActionChange(DragAction.NONE)
                         },
                         onDragCancel = { 
-                            isDragging = false 
-                            dragAction = DragAction.NONE
+                            onIsSkipDraggingChange(false)
+                            onSkipDragActionChange(DragAction.NONE)
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            totalDragOffset += dragAmount
+                            localAccumulatedOffset += dragAmount
+                            onSkipTotalDragOffsetChange(localAccumulatedOffset)
                             
                             val skipThreshold = with(density) { 80.dp.toPx() }
                             
-                            if (totalDragOffset.y < -skipThreshold) {
+                            if (localAccumulatedOffset.y < -skipThreshold) {
                                 val horizontalThreshold = with(density) { 24.dp.toPx() }
                                 val nextAction = when {
-                                    totalDragOffset.x < -horizontalThreshold -> DragAction.PREVIOUS
-                                    totalDragOffset.x > horizontalThreshold -> DragAction.NEXT
+                                    localAccumulatedOffset.x < -horizontalThreshold -> DragAction.PREVIOUS
+                                    localAccumulatedOffset.x > horizontalThreshold -> DragAction.NEXT
                                     else -> DragAction.NONE
                                 }
-                                if (nextAction != dragAction) {
-                                    dragAction = nextAction
-                                    if (dragAction != DragAction.NONE) {
+                                if (nextAction != skipDragAction) {
+                                    onSkipDragActionChange(nextAction)
+                                    if (nextAction != DragAction.NONE) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     }
                                 }
                             } else {
-                                dragAction = DragAction.NONE
+                                onSkipDragActionChange(DragAction.NONE)
                                 val dragFactor = 150L 
                                 val newPos = (currentPosition + (dragAmount.x * dragFactor).toLong())
                                     .coerceIn(0L, duration)
@@ -545,7 +568,6 @@ private fun PlaybackSection(
                 Text(
                     text = currentSong?.title ?: "",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -619,7 +641,6 @@ private fun PlaybackSection(
                             Text(
                                 text = remainingTime,
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
                                 color = contentColorFor(artworkColors.secondary.copy(alpha = 0.8f)),
                                 modifier = Modifier.clearAndSetSemantics { 
                                     contentDescription = "$remainingTime remaining" 
@@ -637,16 +658,6 @@ private fun PlaybackSection(
                 }
             }
         }
-
-        val overlayThreshold = with(density) { 32.dp.toPx() }
-        SkipActionOverlay(
-            action = dragAction,
-            visible = isDragging && totalDragOffset.y < -overlayThreshold,
-            artworkColors = artworkColors,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = (-110).dp)
-        )
     }
 }
 
@@ -705,7 +716,6 @@ private fun QuickNavOverlay(
                         Text(
                             filter.label,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = if (isHighlighted) FontWeight.Black else FontWeight.Bold,
                             color = itemColor,
                             modifier = Modifier.padding(end = 8.dp)
                         )
@@ -789,7 +799,6 @@ private fun SkipIndicator(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (active) FontWeight.Black else FontWeight.Bold,
             color = color
         )
     }

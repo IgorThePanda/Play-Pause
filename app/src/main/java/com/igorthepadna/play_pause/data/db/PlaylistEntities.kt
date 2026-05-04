@@ -79,3 +79,24 @@ data class PlaylistBackup(
     val playlists: List<PlaylistEntity>,
     val playlistSongs: List<PlaylistSongEntity>
 )
+
+@Serializable
+data class SongBackup(
+    val title: String,
+    val artist: String,
+    val album: String,
+    val duration: Long,
+    val path: String,
+    val mediaStoreId: Long // Reference for matching if possible
+)
+
+@Serializable
+data class PlaylistBackupV2(
+    val playlist: PlaylistEntity,
+    val songs: List<SongBackup>
+)
+
+@Serializable
+data class FullBackupV2(
+    val playlists: List<PlaylistBackupV2>
+)

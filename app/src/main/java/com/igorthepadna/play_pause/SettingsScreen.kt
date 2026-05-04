@@ -11,6 +11,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Image
+import coil.compose.AsyncImage
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import com.igorthepadna.play_pause.data.Playlist
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
@@ -30,7 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.igorthepadna.play_pause.utils.verticalScrollbar
 
 enum class SettingsTab {
-    MAIN, LYRICS
+    MAIN, PLAYBACK, APPEARANCE, LYRICS_EDITOR, LIBRARY, BACKUP, PLAYLIST_EXPORT, ABOUT
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,7 +54,7 @@ fun MainSettingsScreen(
     AnimatedContent(
         targetState = currentTab,
         transitionSpec = {
-            if (targetState == SettingsTab.LYRICS) {
+            if (targetState != SettingsTab.MAIN) {
                 slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
             } else {
                 slideInHorizontally { -it } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
@@ -57,13 +63,37 @@ fun MainSettingsScreen(
         label = "settings_nav"
     ) { tab ->
         when (tab) {
-            SettingsTab.MAIN -> MainSettingsContent(
-                viewModel = viewModel,
-                onBack = onBack,
-                onNavigateToLyrics = { currentTab = SettingsTab.LYRICS }
+            SettingsTab.MAIN -> MainSettingsCategories(
+                onNavigate = { currentTab = it },
+                onBack = onBack
             )
-            SettingsTab.LYRICS -> LyricSettingsScreen(
+            SettingsTab.PLAYBACK -> PlaybackSettingsScreen(
                 viewModel = viewModel,
+                onBack = { currentTab = SettingsTab.MAIN }
+            )
+            SettingsTab.APPEARANCE -> AppearanceSettingsScreen(
+                viewModel = viewModel,
+                onBack = { currentTab = SettingsTab.MAIN },
+                onNavigateToLyrics = { currentTab = SettingsTab.LYRICS_EDITOR }
+            )
+            SettingsTab.LYRICS_EDITOR -> LyricSettingsScreen(
+                viewModel = viewModel,
+                onBack = { currentTab = SettingsTab.APPEARANCE }
+            )
+            SettingsTab.LIBRARY -> LibrarySettingsScreen(
+                viewModel = viewModel,
+                onBack = { currentTab = SettingsTab.MAIN }
+            )
+            SettingsTab.BACKUP -> BackupSettingsScreen(
+                viewModel = viewModel,
+                onBack = { currentTab = SettingsTab.MAIN },
+                onNavigateToPlaylistExport = { currentTab = SettingsTab.PLAYLIST_EXPORT }
+            )
+            SettingsTab.PLAYLIST_EXPORT -> PlaylistExportSelectionScreen(
+                viewModel = viewModel,
+                onBack = { currentTab = SettingsTab.BACKUP }
+            )
+            SettingsTab.ABOUT -> AboutScreen(
                 onBack = { currentTab = SettingsTab.MAIN }
             )
         }
@@ -72,14 +102,11 @@ fun MainSettingsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainSettingsContent(
-    viewModel: MainViewModel,
-    onBack: () -> Unit,
-    onNavigateToLyrics: () -> Unit
+fun MainSettingsCategories(
+    onNavigate: (SettingsTab) -> Unit,
+    onBack: () -> Unit
 ) {
     val scrollState = rememberScrollState()
-    val paddingValues = PaddingValues(16.dp)
-    
     Scaffold(
         topBar = {
             TopAppBar(
@@ -96,14 +123,107 @@ fun MainSettingsContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScrollbar(scrollState, padding = paddingValues)
                 .verticalScroll(scrollState)
-                .padding(paddingValues),
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            CategoryCard(
+                title = "Playback",
+                subtitle = "Gapless, crossfade and audio engine",
+                icon = Icons.Rounded.PlayCircle,
+                onClick = { onNavigate(SettingsTab.PLAYBACK) }
+            )
+            CategoryCard(
+                title = "Appearance",
+                subtitle = "Themes, colors and lyrics editor",
+                icon = Icons.Rounded.Palette,
+                onClick = { onNavigate(SettingsTab.APPEARANCE) }
+            )
+            CategoryCard(
+                title = "Library",
+                subtitle = "Scanning, folder filters and artwork",
+                icon = Icons.Rounded.LibraryMusic,
+                onClick = { onNavigate(SettingsTab.LIBRARY) }
+            )
+            CategoryCard(
+                title = "Backup & Restore",
+                subtitle = "Export and import your playlists",
+                icon = Icons.Rounded.SettingsBackupRestore,
+                onClick = { onNavigate(SettingsTab.BACKUP) }
+            )
+            CategoryCard(
+                title = "About",
+                subtitle = "App version and developer information",
+                icon = Icons.Rounded.Info,
+                onClick = { onNavigate(SettingsTab.ABOUT) }
+            )
+            
+            Spacer(Modifier.height(100.dp))
+        }
+    }
+}
+
+@Composable
+fun CategoryCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon, 
+                    null, 
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(Modifier.width(20.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlaybackSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Playback", fontWeight = FontWeight.Black) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            SettingsSection(title = "Playback") {
-                val gaplessPlayback by viewModel.gaplessPlayback.collectAsStateWithLifecycle()
-                
+            val gaplessPlayback by viewModel.gaplessPlayback.collectAsStateWithLifecycle()
+            SettingsSection(title = "Audio Engine") {
                 SettingsSwitchItem(
                     title = "Gapless Playback",
                     subtitle = "Remove silence between tracks",
@@ -112,86 +232,36 @@ fun MainSettingsContent(
                     onCheckedChange = { viewModel.setGaplessPlayback(it) }
                 )
             }
+        }
+    }
+}
 
-            SettingsSection(title = "Customization") {
-                SettingsActionItem(
-                    title = "Lyrics Editor",
-                    subtitle = "Customize how lyrics appear",
-                    icon = Icons.Rounded.Lyrics,
-                    onClick = onNavigateToLyrics
-                )
-            }
-
-            SettingsSection(title = "Library") {
-                val scanOnlyMusic by viewModel.scanOnlyMusicFolder.collectAsStateWithLifecycle()
-                
-                SettingsSwitchItem(
-                    title = "Scan Only Music Folder",
-                    subtitle = "Skip Downloads folder for faster scanning",
-                    icon = Icons.Rounded.Folder,
-                    checked = scanOnlyMusic,
-                    onCheckedChange = { viewModel.setScanOnlyMusicFolder(it) }
-                )
-
-                SettingsActionItem(
-                    title = "Rescan Media",
-                    subtitle = "Search for new music files",
-                    icon = Icons.Rounded.Refresh,
-                    onClick = { viewModel.loadSongs(refresh = true) }
-                )
-                
-                SettingsActionItem(
-                    title = "Fetch Artist Artwork",
-                    subtitle = "Search local folders for artist images",
-                    icon = Icons.Rounded.Image,
-                    onClick = { viewModel.loadSongs(refresh = false) }
-                )
-            }
-
-            SettingsSection(title = "Backup & Restore") {
-                val context = LocalContext.current
-                val exportLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.CreateDocument("application/json")
-                ) { uri ->
-                    uri?.let {
-                        context.contentResolver.openOutputStream(it)?.let { os ->
-                            viewModel.exportPlaylists(os)
-                        }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AppearanceSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigateToLyrics: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Appearance", fontWeight = FontWeight.Black) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val colorSchemeType by viewModel.colorSchemeType.collectAsStateWithLifecycle()
+            val useArtworkAccent by viewModel.useArtworkAccent.collectAsStateWithLifecycle()
 
-                val importLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.OpenDocument()
-                ) { uri ->
-                    uri?.let {
-                        context.contentResolver.openInputStream(it)?.let { isStream ->
-                            viewModel.importPlaylists(isStream)
-                        }
-                    }
-                }
-
-                SettingsActionItem(
-                    title = "Export Playlists",
-                    subtitle = "Save playlists to a JSON file",
-                    icon = Icons.Rounded.Upload,
-                    onClick = { exportLauncher.launch("play_pause_playlists.json") }
-                )
-
-                SettingsActionItem(
-                    title = "Import Playlists",
-                    subtitle = "Restore playlists from JSON or M3U file",
-                    icon = Icons.Rounded.Download,
-                    onClick = { importLauncher.launch(arrayOf("application/json", "audio/mpegurl", "audio/x-mpegurl", "application/octet-stream")) }
-                )
-            }
-
-            SettingsSection(title = "Appearance") {
-                val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-                val colorSchemeType by viewModel.colorSchemeType.collectAsStateWithLifecycle()
-                val useArtworkAccent by viewModel.useArtworkAccent.collectAsStateWithLifecycle()
-
+            SettingsSection(title = "Theming") {
                 SettingsHeaderItem(title = "Theme Mode")
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThemeOptionChip(
                         selected = themeMode == ThemeMode.LIGHT,
                         label = "Light",
@@ -212,12 +282,10 @@ fun MainSettingsContent(
                     )
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
                 SettingsHeaderItem(title = "Color Scheme")
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     ColorSchemeOptionChip(
@@ -247,7 +315,7 @@ fun MainSettingsContent(
                     )
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
                 SettingsSwitchItem(
                     title = "Artwork Accent",
                     subtitle = "Use colors from current song artwork",
@@ -256,8 +324,208 @@ fun MainSettingsContent(
                     onCheckedChange = { viewModel.setUseArtworkAccent(it) }
                 )
             }
+
+            SettingsSection(title = "Lyrics") {
+                SettingsActionItem(
+                    title = "Lyrics Editor",
+                    subtitle = "Customize how lyrics appear",
+                    icon = Icons.Rounded.Lyrics,
+                    onClick = onNavigateToLyrics
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LibrarySettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Library", fontWeight = FontWeight.Black) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            val scanOnlyMusic by viewModel.scanOnlyMusicFolder.collectAsStateWithLifecycle()
+            SettingsSection(title = "Scanning") {
+                SettingsSwitchItem(
+                    title = "Scan Only Music Folder",
+                    subtitle = "Skip Downloads folder for faster scanning",
+                    icon = Icons.Rounded.Folder,
+                    checked = scanOnlyMusic,
+                    onCheckedChange = { viewModel.setScanOnlyMusicFolder(it) }
+                )
+
+                SettingsActionItem(
+                    title = "Rescan Media",
+                    subtitle = "Search for new music files",
+                    icon = Icons.Rounded.Refresh,
+                    onClick = { viewModel.loadSongs(refresh = true) }
+                )
+            }
             
-            Spacer(Modifier.height(100.dp))
+            SettingsSection(title = "Artwork") {
+                SettingsActionItem(
+                    title = "Fetch Artist Artwork",
+                    subtitle = "Search local folders for artist images",
+                    icon = Icons.Rounded.Image,
+                    onClick = { viewModel.loadSongs(refresh = false) }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BackupSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigateToPlaylistExport: () -> Unit) {
+    val context = LocalContext.current
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { context.contentResolver.openOutputStream(it)?.let { os -> viewModel.exportPlaylists(os) } }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { context.contentResolver.openInputStream(it)?.let { isStream -> viewModel.importPlaylists(isStream) } }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Backup & Restore", fontWeight = FontWeight.Black) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            SettingsSection(title = "Playlist Backups") {
+                SettingsActionItem(
+                    title = "Export All Playlists",
+                    subtitle = "Save all playlists to a single JSON file",
+                    icon = Icons.Rounded.Upload,
+                    onClick = { exportLauncher.launch("play_pause_playlists.json") }
+                )
+                SettingsActionItem(
+                    title = "Export Playlists Separately",
+                    subtitle = "Select playlists to save as individual files",
+                    icon = Icons.Rounded.LibraryMusic,
+                    onClick = onNavigateToPlaylistExport
+                )
+                SettingsActionItem(
+                    title = "Import Playlists",
+                    subtitle = "Restore playlists from JSON or M3U file",
+                    icon = Icons.Rounded.Download,
+                    onClick = { importLauncher.launch(arrayOf("application/json", "audio/mpegurl", "audio/x-mpegurl", "application/octet-stream")) }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AboutScreen(onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("About", fontWeight = FontWeight.Black) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(120.dp),
+                shape = RoundedCornerShape(32.dp),
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    AsyncImage(
+                        model = R.mipmap.ic_launcher,
+                        contentDescription = "App Icon",
+                        modifier = Modifier.size(80.dp)
+                    )
+                }
+            }
+            
+            Spacer(Modifier.height(16.dp))
+            
+            Text(
+                "Play-Pause", 
+                style = MaterialTheme.typography.headlineLarge, 
+                fontWeight = FontWeight.Black,
+                letterSpacing = (-1).sp
+            )
+            Text(
+                "Version 1.0 (Beta)", 
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            Spacer(Modifier.height(32.dp))
+            
+            SettingsSection(title = "Developers") {
+                DeveloperItem(
+                    name = "Google AI Model",
+                    role = "App Creator & Architect",
+                    icon = Icons.Rounded.AutoAwesome
+                )
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
+                )
+                DeveloperItem(
+                    name = "IgorThePanda",
+                    role = "Lead Developer",
+                    icon = Icons.Rounded.Person
+                )
+            }
+            
+            SettingsSection(title = "Credits") {
+                SettingsActionItem(
+                    title = "Material You 3 Expressive",
+                    subtitle = "Design inspired by Google's M3 guide",
+                    icon = Icons.Rounded.DesignServices,
+                    onClick = {}
+                )
+                SettingsActionItem(
+                    title = "Open Source Libraries",
+                    subtitle = "Media3, Coil, Room, Serialization",
+                    icon = Icons.Rounded.Code,
+                    onClick = {}
+                )
+            }
+            
+            Text(
+                "Made with ❤️ and Kotlin",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.padding(top = 32.dp)
+            )
         }
     }
 }
@@ -409,6 +677,30 @@ fun LyricSettingsScreen(
             }
             
             Spacer(Modifier.height(40.dp))
+        }
+    }
+}
+
+@Composable
+fun DeveloperItem(
+    name: String,
+    role: String,
+    icon: ImageVector
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Text(name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+            Text(role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -579,4 +871,101 @@ fun ColorSchemeOptionChip(selected: Boolean, label: String, onClick: () -> Unit)
         label = { Text(label) },
         shape = RoundedCornerShape(12.dp)
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlaylistExportSelectionScreen(
+    viewModel: MainViewModel,
+    onBack: () -> Unit
+) {
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle(emptyList())
+    val selectedIds = remember { mutableStateListOf<String>() }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let {
+            viewModel.exportPlaylistsToFolder(selectedIds.toList(), it, context.contentResolver)
+            onBack()
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Select Playlists", fontWeight = FontWeight.Black) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (selectedIds.isNotEmpty()) {
+                        TextButton(onClick = { folderLauncher.launch(null) }) {
+                            Text("Export (${selectedIds.size})", fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        if (playlists.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("No playlists to export", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Choose playlists to export as separate JSON files.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                
+                items(playlists) { playlist ->
+                    val isSelected = selectedIds.contains(playlist.id)
+                    Surface(
+                        onClick = {
+                            if (isSelected) selectedIds.remove(playlist.id)
+                            else selectedIds.add(playlist.id)
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(playlist.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("${playlist.songs.size} songs", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = {
+                                    if (it!!) selectedIds.add(playlist.id)
+                                    else selectedIds.remove(playlist.id)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

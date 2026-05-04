@@ -261,7 +261,6 @@ fun LyricLineView(
                 text = line.speaker.uppercase(),
                 style = MaterialTheme.typography.labelSmall,
                 color = speakerColor,
-                fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
         }
@@ -284,9 +283,7 @@ fun LyricLineView(
                         text = word.text,
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontSize = fontSize.sp,
-                            fontWeight = if (isWordCurrentlyPlaying) FontWeight.Black else FontWeight.Bold,
-                            lineHeight = (fontSize * 1.4).sp,
-                            letterSpacing = (-1).sp
+                            lineHeight = (fontSize * 1.4).sp
                         ),
                         color = Color.White,
                         modifier = Modifier
@@ -457,17 +454,16 @@ private fun ColumnScope.PlayerArtworkSection(
                                 contentPadding = PaddingValues(16.dp)
                             ) {
                                 item {
-                                    Text(
-                                        text = rawLyrics,
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontSize = (lyricFontSize * 0.8f).sp,
-                                            fontWeight = FontWeight.Bold,
-                                            lineHeight = (lyricFontSize * 1.1).sp
-                                        ),
-                                        color = Color.White,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.clickable(onClick = onToggleLyrics)
-                                    )
+            Text(
+                text = rawLyrics,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = (lyricFontSize * 0.8f).sp,
+                    lineHeight = (lyricFontSize * 1.1).sp
+                ),
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.clickable(onClick = onToggleLyrics)
+            )
                                 }
                             }
                         } else {
@@ -510,10 +506,7 @@ private fun PlayerSongInfoSection(
         ) {
             Text(
                 currentMediaItem?.mediaMetadata?.title?.toString() ?: "No Title",
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = (-1).sp
-                ),
+                style = MaterialTheme.typography.headlineLarge,
                 maxLines = 2,
                 lineHeight = 42.sp,
                 overflow = TextOverflow.Ellipsis,
@@ -532,8 +525,7 @@ private fun PlayerSongInfoSection(
         Text(
             text = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist",
             style = MaterialTheme.typography.titleLarge.copy(
-                color = artworkColors.secondary,
-                fontWeight = FontWeight.Bold
+                color = artworkColors.secondary
             ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -583,7 +575,6 @@ private fun PlayerProgressSection(
             Text(
                 text = formatDuration(currentPosition),
                 style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
@@ -612,7 +603,6 @@ private fun PlayerProgressSection(
                 Text(
                     text = bitrateStr.uppercase(), 
                     style = MaterialTheme.typography.labelSmall, 
-                    fontWeight = FontWeight.Black, 
                     color = artworkColors.tertiary,
                     letterSpacing = 0.5.sp
                 )
@@ -621,7 +611,6 @@ private fun PlayerProgressSection(
             Text(
                 text = if (showRemainingTime) "-${formatDuration(duration - currentPosition)}" else formatDuration(duration),
                 style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.clickable { showRemainingTime = !showRemainingTime }
             )
@@ -817,7 +806,6 @@ private fun PlayerQueueSheet(
                     Text(
                         "Queue",
                         style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = queueTextAlpha)
                     )
                 }
@@ -900,9 +888,11 @@ fun FullScreenPlayer(
 
     val lyricsListState = rememberLazyListState()
 
-    LaunchedEffect(currentLyricIndex) {
+    LaunchedEffect(currentLyricIndex, isLyricsVisible) {
         if (isLyricsVisible && currentLyricIndex != -1) {
-            lyricsListState.animateScrollToItem(currentLyricIndex)
+            if (lyricsListState.firstVisibleItemIndex != currentLyricIndex) {
+                lyricsListState.animateScrollToItem(currentLyricIndex)
+            }
         }
     }
 

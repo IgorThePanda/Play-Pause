@@ -1,9 +1,13 @@
 package com.igorthepadna.play_pause.ui.components
 
 import android.media.MediaMetadataRetriever
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -11,14 +15,26 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.MusicRepository
@@ -35,11 +51,28 @@ fun SongDetailsContent(
     artworkColors: ArtworkColors,
     onLyricClick: () -> Unit = {},
     onFolderClick: (String) -> Unit = {},
-    onNavigateToArtist: ((String) -> Unit)? = null
+    onNavigateToArtist: ((String) -> Unit)? = null,
+    onNavigateToAlbum: ((Long) -> Unit)? = null,
+    onNavigateToGenre: ((String) -> Unit)? = null
 ) {
+    val entryAnim = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        entryAnim.animateTo(
+            targetValue = 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = Spring.StiffnessLow
+            )
+        )
+    }
+
     var genre by remember { mutableStateOf("Loading...") }
     var bitrate by remember { mutableStateOf("Loading...") }
     var lyricType by remember { mutableStateOf("Checking...") }
+
+    var infoDialogTitle by remember { mutableStateOf<String?>(null) }
+    var infoDialogText by remember { mutableStateOf<String?>(null) }
+    var clickedPillRect by remember { mutableStateOf<Rect?>(null) }
 
     LaunchedEffect(song.path) {
         withContext(Dispatchers.IO) {
@@ -93,9 +126,36 @@ fun SongDetailsContent(
         }
     }
 
+    // Define details here so they are accessible to both the Layout and the Popup
+    val details = listOfNotNull(
+        Triple(Icons.Rounded.Album, song.album, "Album"),
+        Triple(Icons.Rounded.MusicNote, genre, "Genre"),
+        Triple(Icons.Rounded.Timer, formatDuration(song.duration), "Duration"),
+        Triple(Icons.Rounded.GraphicEq, bitrate, "Bitrate"),
+        Triple(Icons.Rounded.FormatShapes, song.format.substringAfter("/").uppercase(), "Format"),
+        Triple(Icons.Rounded.Lyrics, lyricType, "Lyrics"),
+        Triple(Icons.Rounded.Numbers, "Track ${if (song.trackNumber > 0) song.trackNumber else "N/A"}", "Track"),
+        if (song.discNumber > 0) Triple(Icons.Rounded.Album, "Disc ${song.discNumber}", "Disc") else null,
+        Triple(Icons.Rounded.SdStorage, String.format(Locale.getDefault(), "%.2f MB", song.size / (1024f * 1024f)), "Size")
+    )
+
+    val guides = mapOf(
+        "Bitrate" to "The amount of data processed per unit of time. Higher bitrate generally means better audio quality but larger file size.",
+        "Format" to "The file extension or codec used to encode the audio. Common formats include MP3 (lossy), FLAC (lossless), and WAV (uncompressed).",
+        "Duration" to "The total length of the audio track.",
+        "Size" to "The disk space occupied by the audio file on your device.",
+        "Track" to "The position of the song within an album or disc.",
+        "Disc" to "The disc number if the album consists of multiple discs.",
+        "Lyrics" to "The type of lyrics synchronization found for this song."
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                alpha = entryAnim.value
+                translationY = (100.dp.toPx() * (1f - entryAnim.value))
+            }
             .padding(horizontal = 24.dp, vertical = 24.dp)
             .padding(bottom = 48.dp)
     ) {
@@ -107,11 +167,9 @@ fun SongDetailsContent(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = song.title,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Black,
+                    style = MaterialTheme.typography.headlineLarge,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    letterSpacing = (-1).sp
+                    overflow = TextOverflow.Ellipsis
                 )
                 val artists = remember(song.artist) { MusicRepository.splitArtists(song.artist) }
                 if (artists.size > 1) {
@@ -121,15 +179,13 @@ fun SongDetailsContent(
                                 text = artist,
                                 style = MaterialTheme.typography.titleLarge,
                                 color = artworkColors.secondary,
-                                fontWeight = FontWeight.Bold,
                                 modifier = if (onNavigateToArtist != null) Modifier.clickable { onNavigateToArtist(artist) } else Modifier
                             )
                             if (index < artists.size - 1) {
                                 Text(
                                     text = " & ",
                                     style = MaterialTheme.typography.titleLarge,
-                                    color = artworkColors.secondary.copy(alpha = 0.5f),
-                                    fontWeight = FontWeight.Bold
+                                    color = artworkColors.secondary.copy(alpha = 0.5f)
                                 )
                             }
                         }
@@ -139,7 +195,6 @@ fun SongDetailsContent(
                         text = song.artist,
                         style = MaterialTheme.typography.titleLarge,
                         color = artworkColors.secondary,
-                        fontWeight = FontWeight.Bold,
                         modifier = if (onNavigateToArtist != null) Modifier.clickable { onNavigateToArtist(song.artist) } else Modifier
                     )
                 }
@@ -167,34 +222,30 @@ fun SongDetailsContent(
         Text(
             "SONG INFORMATION",
             style = MaterialTheme.typography.labelMedium.copy(
-                color = artworkColors.secondary,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 2.sp
+                color = artworkColors.secondary
             ),
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // Custom wrap layout using standard Compose features
-        val details = listOfNotNull(
-            Icons.Rounded.Album to song.album,
-            Icons.Rounded.MusicNote to genre,
-            Icons.Rounded.Timer to formatDuration(song.duration),
-            Icons.Rounded.GraphicEq to bitrate,
-            Icons.Rounded.FormatShapes to song.format.substringAfter("/"),
-            Icons.Rounded.Lyrics to lyricType,
-            Icons.Rounded.Numbers to "Track ${if (song.trackNumber > 0) song.trackNumber else "N/A"}",
-            if (song.discNumber > 0) Icons.Rounded.Album to "Disc ${song.discNumber}" else null,
-            Icons.Rounded.SdStorage to String.format(Locale.getDefault(), "%.2f MB", song.size / (1024f * 1024f))
-        )
-
         androidx.compose.ui.layout.Layout(
             content = {
-                details.forEach { (icon, text) ->
+                details.forEach { (icon, text, type) ->
                     DetailPill(
                         icon = icon,
                         text = text,
                         color = artworkColors.secondary,
-                        onClick = if (icon == Icons.Rounded.Lyrics) onLyricClick else null
+                        onClick = { rect ->
+                            when (type) {
+                                "Album" -> onNavigateToAlbum?.invoke(song.albumId)
+                                "Genre" -> if (genre != "Unknown" && genre != "Loading...") onNavigateToGenre?.invoke(genre)
+                                "Lyrics" -> onLyricClick()
+                                else -> {
+                                    clickedPillRect = rect
+                                    infoDialogTitle = type
+                                    infoDialogText = guides[type]
+                                }
+                            }
+                        }
                     )
                 }
             }
@@ -244,25 +295,150 @@ fun SongDetailsContent(
                 modifier = Modifier.padding(16.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(20.dp), tint = artworkColors.secondary)
+                Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(20.dp), tint = artworkColors.secondary)
                 Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = song.path,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 20.sp
-                )
+                Column {
+                    Text(
+                        text = "File Location",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = artworkColors.secondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = song.path,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 20.sp
+                    )
+                }
+            }
+        }
+    }
+
+    if (infoDialogTitle != null) {
+        Popup(
+            onDismissRequest = { infoDialogTitle = null },
+            properties = PopupProperties(focusable = true, dismissOnClickOutside = true)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f))
+                    .clickable { infoDialogTitle = null },
+                contentAlignment = Alignment.Center
+            ) {
+                val animProgress = remember { Animatable(0f) }
+                
+                LaunchedEffect(infoDialogTitle) {
+                    animProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    )
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .padding(horizontal = 32.dp)
+                        .widthIn(max = 400.dp)
+                        .graphicsLayer {
+                            val lerp = animProgress.value
+                            scaleX = 0.6f + (0.4f * lerp)
+                            scaleY = 0.6f + (0.4f * lerp)
+                            alpha = lerp
+                            
+                            clickedPillRect?.let { rect ->
+                                // Calculate translation to center from the pill's position
+                                // This is a rough approximation since we're in a Popup
+                                val screenCenterX = size.width / 2
+                                val screenCenterY = size.height / 2
+                                val pillCenterX = rect.center.x
+                                val pillCenterY = rect.center.y
+                                
+                                translationX = (pillCenterX - screenCenterX) * (1f - lerp)
+                                translationY = (pillCenterY - screenCenterY) * (1f - lerp)
+                            }
+                        }
+                        .clickable(enabled = false) { },
+                    shape = RoundedCornerShape(32.dp),
+                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                    tonalElevation = 6.dp,
+                    shadowElevation = 12.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = artworkColors.secondary.copy(alpha = 0.1f),
+                            modifier = Modifier.size(64.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                val icon = details.find { it.third == infoDialogTitle }?.first ?: Icons.Rounded.Info
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(32.dp),
+                                    tint = artworkColors.secondary
+                                )
+                            }
+                        }
+                        
+                        Spacer(Modifier.height(16.dp))
+                        
+                        Text(
+                            text = infoDialogTitle!!,
+                            style = MaterialTheme.typography.headlineSmall,
+                            textAlign = TextAlign.Center
+                        )
+                        
+                        Spacer(Modifier.height(12.dp))
+                        
+                        Text(
+                            text = infoDialogText ?: "",
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 24.sp
+                        )
+                        
+                        Spacer(Modifier.height(24.dp))
+                        
+                        Button(
+                            onClick = { infoDialogTitle = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = artworkColors.secondary
+                            )
+                        ) {
+                            Text("Got it", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun DetailPill(icon: ImageVector, text: String, color: Color, onClick: (() -> Unit)? = null) {
+fun DetailPill(
+    icon: ImageVector, 
+    text: String, 
+    color: Color, 
+    onPositioned: (Rect) -> Unit = {},
+    onClick: ((Rect) -> Unit)? = null
+) {
+    var layoutRect by remember { mutableStateOf<Rect?>(null) }
+    
     SuggestionChip(
-        onClick = { onClick?.invoke() },
+        onClick = { layoutRect?.let { onClick?.invoke(it) } },
         label = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold) },
         icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color) },
         shape = RoundedCornerShape(16.dp),
@@ -270,6 +446,11 @@ fun DetailPill(icon: ImageVector, text: String, color: Color, onClick: (() -> Un
             containerColor = color.copy(alpha = 0.12f),
             labelColor = MaterialTheme.colorScheme.onSurface
         ),
-        border = null
+        border = null,
+        modifier = Modifier.onGloballyPositioned { 
+            val rect = it.boundsInWindow()
+            layoutRect = rect
+            onPositioned(rect)
+        }
     )
 }

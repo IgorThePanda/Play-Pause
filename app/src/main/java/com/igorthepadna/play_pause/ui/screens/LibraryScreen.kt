@@ -86,7 +86,6 @@ private fun LibraryTopBarActions(
     onUpdateViewModeSettings: (ViewModeSettings) -> Unit
 ) {
     val isUnifiedList = currentFilter == LibraryFilter.SONGS || 
-                        currentFilter == LibraryFilter.PLAYLISTS || 
                         currentFilter == LibraryFilter.GENRES
 
     Row(
@@ -190,11 +189,6 @@ fun LibraryScreen(
 
     BackHandler(enabled = selectedDetail != null) {
         viewModel?.popSelection()
-    }
-
-    // Automatically close sub-menus when the navigation tab (filter) changes
-    LaunchedEffect(currentFilter) {
-        viewModel?.clearSelections()
     }
 
     DetailViewSwitcher(
@@ -379,7 +373,9 @@ private fun DetailViewSwitcher(
                         },
                         onPlayAllSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
                         onPlaySpecificSongs = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
-                        albumArtMap = albumArtMap
+                        albumArtMap = albumArtMap,
+                        currentPlayingId = currentPlayingId,
+                        currentPlayingSong = currentPlayingSong
                     )
                 }
             }
