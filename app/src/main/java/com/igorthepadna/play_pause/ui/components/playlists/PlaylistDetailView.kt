@@ -61,6 +61,7 @@ fun PlaylistDetailView(
     onNavigateToArtist: (String) -> Unit = {},
     onEditCover: () -> Unit = {},
     onAddSongs: () -> Unit = {},
+    onInfoClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MainViewModel? = null
 ) {
@@ -106,9 +107,10 @@ fun PlaylistDetailView(
                     artworkUri = effectiveArtworkUri,
                     albumArtMap = albumArtMap,
                     onBack = onBack,
-                    onPlay = { onPlaySongs(playlistSongs, 0, false) },
+                    onPlay = { onPlaySongs(playlistSongs, 0, null) },
                     onShuffle = { onPlaySongs(playlistSongs, 0, true) },
-                    onEditCover = onEditCover
+                    onEditCover = onEditCover,
+                    onInfoClick = onInfoClick
                 )
             }
 
@@ -216,7 +218,8 @@ fun PlaylistHighFidelityHeader(
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
-    onEditCover: () -> Unit
+    onEditCover: () -> Unit,
+    onInfoClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -285,6 +288,35 @@ fun PlaylistHighFidelityHeader(
                 Icon(
                     Icons.AutoMirrored.Rounded.ArrowBack,
                     "Back",
+                    tint = Color.White,
+                    modifier = Modifier.align(Alignment.Center).size(20.dp)
+                )
+            }
+
+            // Info Button (Top Right)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
+                    .clickable { onInfoClick() }
+            ) {
+                Box(modifier = Modifier.matchParentSize()) {
+                    if (artworkUri != null) {
+                        AsyncImage(
+                            model = artworkUri,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().blur(24.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)))
+                }
+                Icon(
+                    Icons.Rounded.Info,
+                    "Info",
                     tint = Color.White,
                     modifier = Modifier.align(Alignment.Center).size(20.dp)
                 )

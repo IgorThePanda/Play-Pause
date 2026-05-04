@@ -41,7 +41,6 @@ import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.Artist
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.ui.components.UniversalSongItem
-import com.igorthepadna.play_pause.ui.components.UniversalSongItem
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
@@ -116,7 +115,7 @@ fun ArtistDetailView(
                 ArtistHighFidelityHeader(
                     artist = artist,
                     onBack = onBack,
-                    onPlay = { onPlayArtist(allSongs, 0, false) }
+                    onPlay = { onPlayArtist(allSongs, 0, null) }
                 )
             }
 
@@ -194,7 +193,7 @@ fun ArtistDetailView(
                                 CompactSongItem(
                                     song = song,
                                     isPlaying = song.id == currentPlayingId,
-                                    onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
+                                    onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), null) },
                                     onDetailsClick = { onSongDetailsClick(song) },
                                     onSwipePlayNext = {},
                                     onSwipeAddToPlaylist = {},
@@ -230,7 +229,7 @@ fun ArtistDetailView(
                                 CompactSongItem(
                                     song = song,
                                     isPlaying = song.id == currentPlayingId,
-                                    onClick = { onPlaySpecificSongs(artist.featuredSongs, artist.featuredSongs.indexOf(song), false) },
+                                    onClick = { onPlaySpecificSongs(artist.featuredSongs, artist.featuredSongs.indexOf(song), null) },
                                     onDetailsClick = { onSongDetailsClick(song) },
                                     onSwipePlayNext = {},
                                     onSwipeAddToPlaylist = {},
@@ -295,7 +294,7 @@ fun ArtistDetailView(
                             UniversalSongItem(
                                 song = song,
                                 isPlaying = song.id == currentPlayingId,
-                                onClick = { onPlaySpecificSongs(allSongs, allSongs.indexOf(song), false) },
+                                onClick = { onPlaySpecificSongs(allSongs, allSongs.indexOf(song), null) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
@@ -525,7 +524,7 @@ fun CategoryDetailView(
                             CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = song,
                                 isPlaying = isPlaying,
-                                onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
+                                onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), null) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
@@ -536,7 +535,7 @@ fun CategoryDetailView(
                             CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = song,
                                 isPlaying = isPlaying,
-                                onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), false) },
+                                onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), null) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
@@ -568,7 +567,7 @@ fun CategoryDetailView(
                             CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = song,
                                 isPlaying = isPlaying,
-                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
+                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), null) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
@@ -579,7 +578,7 @@ fun CategoryDetailView(
                             CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = song,
                                 isPlaying = isPlaying,
-                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
+                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), null) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
@@ -612,7 +611,7 @@ fun CategoryDetailView(
                             CategoryViewMode.COMPACT -> UniversalSongItem(
                                 song = song,
                                 isPlaying = isPlaying,
-                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
+                                onClick = { onPlaySpecificSongs(allSongs, allSongs.indexOf(song), null) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},
@@ -623,7 +622,7 @@ fun CategoryDetailView(
                             CategoryViewMode.DETAILED -> UniversalSongItem(
                                 song = song,
                                 isPlaying = isPlaying,
-                                onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), false) },
+                                onClick = { onPlaySpecificSongs(allSongs, allSongs.indexOf(song), null) },
                                 onDetailsClick = { onSongDetailsClick(song) },
                                 onSwipePlayNext = {},
                                 onSwipeAddToPlaylist = {},

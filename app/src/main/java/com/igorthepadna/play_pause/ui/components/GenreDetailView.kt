@@ -106,7 +106,7 @@ fun GenreDetailView(
                     songCount = songs.size,
                     artworkUri = firstSongArtwork,
                     onBack = onBack,
-                    onPlay = { onPlaySongs(songs, 0, false) },
+                    onPlay = { onPlaySongs(songs, 0, null) },
                     onShuffle = { onPlaySongs(songs, 0, true) }
                 )
             }

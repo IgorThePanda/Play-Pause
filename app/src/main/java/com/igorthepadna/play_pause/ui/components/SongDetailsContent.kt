@@ -168,6 +168,7 @@ fun SongDetailsContent(
                 Text(
                     text = song.title,
                     style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -395,6 +396,7 @@ fun SongDetailsContent(
                         Text(
                             text = infoDialogTitle!!,
                             style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                             textAlign = TextAlign.Center
                         )
                         

@@ -507,6 +507,7 @@ private fun PlayerSongInfoSection(
             Text(
                 currentMediaItem?.mediaMetadata?.title?.toString() ?: "No Title",
                 style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 lineHeight = 42.sp,
                 overflow = TextOverflow.Ellipsis,
@@ -845,7 +846,7 @@ fun FullScreenPlayer(
     val queueOffsetY = remember { Animatable(closedValue) }
     val isQueueVisible by remember { derivedStateOf { queueOffsetY.value < closedValue - 10f } }
 
-    var isLyricsVisible by remember { mutableStateOf(false) }
+    val isLyricsVisible by viewModel.isLyricsOnCover.collectAsStateWithLifecycle()
     val rawLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
     
     val parsedLyrics = remember(rawLyrics, offsetY) { 
@@ -904,7 +905,7 @@ fun FullScreenPlayer(
 
     BackHandler(enabled = isAnyOverlayVisible, onBack = {
         if (isLyricsVisible) {
-            isLyricsVisible = false
+            viewModel.setLyricsOnCover(false)
         } else if (isQueueVisible) {
             scope.launch {
                 queueOffsetY.animateTo(closedValue, spring(stiffness = Spring.StiffnessLow))
@@ -1040,7 +1041,7 @@ fun FullScreenPlayer(
                         player.seekTo(timestamp)
                         currentPosition = timestamp
                     },
-                    onToggleLyrics = { isLyricsVisible = false }
+                    onToggleLyrics = { viewModel.setLyricsOnCover(false) }
                 )
 
                 Spacer(modifier = Modifier.weight(2f))
@@ -1094,7 +1095,7 @@ fun FullScreenPlayer(
                     player = player,
                     artworkColors = artworkColors,
                     isLyricsVisible = isLyricsVisible,
-                    onToggleLyrics = { isLyricsVisible = !isLyricsVisible },
+                    onToggleLyrics = { viewModel.setLyricsOnCover(!isLyricsVisible) },
                     onAddClick = { currentSong?.let { onAddClick(it) } },
                     onMoreClick = { currentSong?.let { onMoreClick(it) } }
                 )

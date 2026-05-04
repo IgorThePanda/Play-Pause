@@ -417,7 +417,7 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                         hasPermission = hasPermission,
                         isRefreshing = isRefreshing,
                         onPermissionChanged = { hasPermission = it },
-                        onPlaySongs = { songList, index, shuffle -> viewModel.playSongs(songList, index, shuffle ?: false) },
+                        onPlaySongs = { songList, index, shuffle -> viewModel.playSongs(songList, index, shuffle) },
                         onSongDetails = { song ->
                             selectedSongForDetails = song
                             showDetailsSheet = true

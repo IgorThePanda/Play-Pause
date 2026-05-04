@@ -134,7 +134,8 @@ fun UniversalSongItem(
     artworkUri: android.net.Uri? = null,
     containerColor: Color? = null,
     leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    leadingContent: @Composable (() -> Unit)? = null
+    leadingContent: @Composable (() -> Unit)? = null,
+    trailingContent: @Composable (() -> Unit)? = null
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
 
@@ -313,13 +314,17 @@ fun UniversalSongItem(
                     }
                 }
 
-                IconButton(onClick = onDetailsClick) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = "Song options",
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                if (trailingContent != null) {
+                    trailingContent()
+                } else {
+                    IconButton(onClick = onDetailsClick) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = "Song options",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -342,7 +347,8 @@ fun SongItem(
     artworkUri: android.net.Uri? = null,
     containerColor: Color? = null,
     leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    leadingContent: @Composable (() -> Unit)? = null
+    leadingContent: @Composable (() -> Unit)? = null,
+    trailingContent: @Composable (() -> Unit)? = null
 ) {
     UniversalSongItem(
         song = song,
@@ -358,7 +364,8 @@ fun SongItem(
         artworkUri = artworkUri,
         containerColor = containerColor,
         leadingIcon = leadingIcon,
-        leadingContent = leadingContent
+        leadingContent = leadingContent,
+        trailingContent = trailingContent
     )
 }
 
@@ -381,7 +388,8 @@ fun CompactSongItem(
     onPlayClick: (() -> Unit)? = null,
     containerColor: Color? = null,
     leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    leadingContent: @Composable (() -> Unit)? = null
+    leadingContent: @Composable (() -> Unit)? = null,
+    trailingContent: @Composable (() -> Unit)? = null
 ) {
     UniversalSongItem(
         song = song,
@@ -399,7 +407,8 @@ fun CompactSongItem(
         artworkUri = artworkUri,
         containerColor = containerColor,
         leadingIcon = leadingIcon,
-        leadingContent = leadingContent
+        leadingContent = leadingContent,
+        trailingContent = trailingContent
     )
 }
 

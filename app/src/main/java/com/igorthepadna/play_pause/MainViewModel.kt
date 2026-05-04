@@ -141,6 +141,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showTimerOnPlayButton = MutableStateFlow(prefs.getBoolean("show_timer_on_play_button", false))
     val showTimerOnPlayButton = _showTimerOnPlayButton.asStateFlow()
 
+    // Default Behavior Settings
+    private val _shuffleByDefault = MutableStateFlow(prefs.getBoolean("shuffle_by_default", false))
+    val shuffleByDefault = _shuffleByDefault.asStateFlow()
+
+    private val _repeatByDefault = MutableStateFlow(prefs.getBoolean("repeat_by_default", false))
+    val repeatByDefault = _repeatByDefault.asStateFlow()
+
+    private val _lyricsByDefault = MutableStateFlow(prefs.getBoolean("lyrics_by_default", false))
+    val lyricsByDefault = _lyricsByDefault.asStateFlow()
+
     // Persistent Navigation State
     private val _currentFilter = MutableStateFlow(
         runCatching { LibraryFilter.valueOf(prefs.getString("last_filter", LibraryFilter.ALBUMS.name)!!) }.getOrDefault(LibraryFilter.ALBUMS)
@@ -160,6 +170,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isPlayerFullScreen = MutableStateFlow(false)
     val isPlayerFullScreen = _isPlayerFullScreen.asStateFlow()
+
+    private val _isLyricsOnCover = MutableStateFlow(false)
+    val isLyricsOnCover = _isLyricsOnCover.asStateFlow()
 
     private val _isFullScreenLyricsVisible = MutableStateFlow(false)
     val isFullScreenLyricsVisible = _isFullScreenLyricsVisible.asStateFlow()
@@ -343,6 +356,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         @Serializable
         data class Playlist(val id: String) : Selection()
         @Serializable
+        data class PlaylistInfo(val id: String) : Selection()
+        @Serializable
         data class Genre(val name: String) : Selection()
     }
 
@@ -369,6 +384,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (artist != null) (artist to last.category) else null
             }
             is Selection.Playlist -> playlists.find { it.id == last.id }
+            is Selection.PlaylistInfo -> playlists.find { it.id == last.id }
             is Selection.Genre -> last.name
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -385,7 +401,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val selectedPlaylist = _selectionStack.map { it.lastOrNull() }.flatMapLatest { selection ->
-        if (selection is Selection.Playlist) repository.getPlaylistWithSongs(selection.id)
+        if (selection is Selection.Playlist || selection is Selection.PlaylistInfo) {
+            val id = when(selection) {
+                is Selection.Playlist -> selection.id
+                is Selection.PlaylistInfo -> selection.id
+                else -> ""
+            }
+            repository.getPlaylistWithSongs(id)
+        }
         else flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -433,6 +456,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             clearSelections()
         } else {
             _selectionStack.value = _selectionStack.value + Selection.Playlist(id)
+            saveSelectionStack()
+        }
+    }
+
+    fun setSelectedPlaylistInfoId(id: String?) {
+        if (id == null) {
+            clearSelections()
+        } else {
+            _selectionStack.value = _selectionStack.value + Selection.PlaylistInfo(id)
             saveSelectionStack()
         }
     }
@@ -505,6 +537,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("show_timer_on_play_button", show).apply()
     }
 
+    fun setShuffleByDefault(enabled: Boolean) {
+        _shuffleByDefault.value = enabled
+        prefs.edit().putBoolean("shuffle_by_default", enabled).apply()
+    }
+
+    fun setRepeatByDefault(enabled: Boolean) {
+        _repeatByDefault.value = enabled
+        prefs.edit().putBoolean("repeat_by_default", enabled).apply()
+    }
+
+    fun setLyricsByDefault(enabled: Boolean) {
+        _lyricsByDefault.value = enabled
+        prefs.edit().putBoolean("lyrics_by_default", enabled).apply()
+    }
+
     fun setCurrentFilter(filter: LibraryFilter) {
         if (_currentFilter.value != filter) {
             _currentFilter.value = filter
@@ -515,6 +562,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPlayerFullScreen(full: Boolean) {
         _isPlayerFullScreen.value = full
+        if (!full) {
+            _isLyricsOnCover.value = false
+        }
+    }
+
+    fun setLyricsOnCover(visible: Boolean) {
+        _isLyricsOnCover.value = visible
     }
 
     private val _viewingLyrics = MutableStateFlow<String?>(null)
@@ -628,13 +682,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var playJob: Job? = null
-    fun playSongs(songs: List<Song>, startIndex: Int, shuffle: Boolean = false) {
+    fun playSongs(songs: List<Song>, startIndex: Int, shuffle: Boolean? = null) {
         val player = _player.value ?: return
         if (songs.isEmpty()) return
         val safeStartIndex = startIndex.coerceIn(0, songs.size - 1)
 
-        // Quick check for queue stability: if the count matches and the target song is the same at that index,
-        // we assume it's the same list and just seek. This prevents a full reload lag.
+        val finalShuffle = shuffle ?: _shuffleByDefault.value
+        val finalRepeatMode = if (_repeatByDefault.value) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
+
+        // Quick check for queue stability
         val isSameQueue = player.mediaItemCount == songs.size && 
                          safeStartIndex < player.mediaItemCount &&
                          player.getMediaItemAt(safeStartIndex).mediaId == songs[safeStartIndex].id.toString()
@@ -642,7 +698,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (isSameQueue) {
             player.seekTo(safeStartIndex, 0L)
             player.play()
-            player.shuffleModeEnabled = shuffle
+            player.shuffleModeEnabled = finalShuffle
+            player.repeatMode = finalRepeatMode
+            
+            if (_lyricsByDefault.value) {
+                setPlayerFullScreen(true)
+                setLyricsOnCover(true)
+            }
             return
         }
 
@@ -655,7 +717,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         player.setMediaItem(targetMediaItem)
         player.prepare()
         player.play()
-        player.shuffleModeEnabled = shuffle
+        player.shuffleModeEnabled = finalShuffle
+        player.repeatMode = finalRepeatMode
+
+        if (_lyricsByDefault.value) {
+            setPlayerFullScreen(true)
+            setLyricsOnCover(true)
+        }
 
         playJob?.cancel()
         playJob = viewModelScope.launch(Dispatchers.Main) {
@@ -706,6 +774,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setPlaylistCover(playlistId: String, uri: Uri?) {
         viewModelScope.launch {
             repository.setPlaylistCover(playlistId, uri)
+        }
+    }
+
+    fun updatePlaylistName(playlistId: String, name: String) {
+        viewModelScope.launch {
+            repository.updatePlaylistName(playlistId, name)
+        }
+    }
+
+    fun deletePlaylist(playlistId: String) {
+        viewModelScope.launch {
+            repository.deletePlaylist(playlistId)
+            popSelection()
         }
     }
 

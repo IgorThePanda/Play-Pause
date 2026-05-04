@@ -601,6 +601,10 @@ class MusicRepository(private val context: Context) {
         playlistDao.updatePlaylistCover(playlistId, uri?.toString())
     }
 
+    suspend fun updatePlaylistName(playlistId: String, name: String) {
+        playlistDao.updatePlaylistName(playlistId, name)
+    }
+
     suspend fun exportPlaylists(outputStream: OutputStream) {
         val playlists = playlistDao.getAllPlaylistsSync()
         val allPlaylistBackups = playlists.map { playlistEntity ->

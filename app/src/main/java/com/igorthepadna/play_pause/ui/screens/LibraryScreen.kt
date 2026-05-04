@@ -402,8 +402,33 @@ private fun DetailViewSwitcher(
                 },
                 onEditCover = { viewModel?.setCoverEditingPlaylistId(detailItem.id) },
                 onAddSongs = { viewModel?.setShowSongSelectionForPlaylist(detailItem.id) },
+                onInfoClick = { viewModel?.setSelectedPlaylistInfoId(detailItem.id) },
                 viewModel = viewModel
             )
+            is com.igorthepadna.play_pause.MainViewModel.Selection.PlaylistInfo -> {
+                val playlist = remember(playlists) { playlists.find { it.id == detailItem.id } }
+                if (playlist != null) {
+                    com.igorthepadna.play_pause.ui.components.playlists.PlaylistInfoView(
+                        playlist = playlist,
+                        playlistSongs = selectedPlaylistSongs,
+                        albumArtMap = albumArtMap,
+                        onBack = { viewModel?.popSelection() },
+                        onEditCover = { viewModel?.setCoverEditingPlaylistId(playlist.id) },
+                        onUpdateName = { viewModel?.updatePlaylistName(playlist.id, it) },
+                        onDeletePlaylist = { viewModel?.deletePlaylist(playlist.id) },
+                        onRemoveSong = { viewModel?.removeFromPlaylist(playlist.id, it) },
+                        onNavigateToArtist = { artistName ->
+                            val artists = MusicRepository.splitArtists(artistName)
+                            if (artists.size > 1) {
+                                viewModel?.showArtistSelection(artists)
+                            } else {
+                                viewModel?.setSelectedArtistName(artistName)
+                            }
+                        },
+                        viewModel = viewModel
+                    )
+                }
+            }
             is String -> GenreDetailView(
                 genre = detailItem,
                 songs = selectedGenreSongs,

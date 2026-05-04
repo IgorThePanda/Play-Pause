@@ -568,6 +568,7 @@ private fun PlaybackSection(
                 Text(
                     text = currentSong?.title ?: "",
                     style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

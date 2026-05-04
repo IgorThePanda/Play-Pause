@@ -88,7 +88,7 @@ fun AlbumDetailView(
                     album = album,
                     artworkColors = artworkColors,
                     onBack = onBack,
-                    onPlay = { onPlaySongs(sortedSongs, 0, false) },
+                    onPlay = { onPlaySongs(sortedSongs, 0, null) },
                     onShuffle = { onPlaySongs(sortedSongs, 0, true) },
                     sortOrder = sortOrder,
                     onToggleSort = { sortOrder = (sortOrder + 1) % 3 },

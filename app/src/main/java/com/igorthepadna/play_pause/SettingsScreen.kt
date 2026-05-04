@@ -232,6 +232,34 @@ fun PlaybackSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     onCheckedChange = { viewModel.setGaplessPlayback(it) }
                 )
             }
+
+            val shuffleByDefault by viewModel.shuffleByDefault.collectAsStateWithLifecycle()
+            val repeatByDefault by viewModel.repeatByDefault.collectAsStateWithLifecycle()
+            val lyricsByDefault by viewModel.lyricsByDefault.collectAsStateWithLifecycle()
+
+            SettingsSection(title = "Default Behavior") {
+                SettingsSwitchItem(
+                    title = "Shuffle by default",
+                    subtitle = "Automatically shuffle when playing a list",
+                    icon = Icons.Rounded.Shuffle,
+                    checked = shuffleByDefault,
+                    onCheckedChange = { viewModel.setShuffleByDefault(it) }
+                )
+                SettingsSwitchItem(
+                    title = "Loop by default",
+                    subtitle = "Enable 'Repeat All' for new playback sessions",
+                    icon = Icons.Rounded.Repeat,
+                    checked = repeatByDefault,
+                    onCheckedChange = { viewModel.setRepeatByDefault(it) }
+                )
+                SettingsSwitchItem(
+                    title = "Lyrics by default",
+                    subtitle = "Show lyrics on the album cover when starting a song",
+                    icon = Icons.Rounded.Lyrics,
+                    checked = lyricsByDefault,
+                    onCheckedChange = { viewModel.setLyricsByDefault(it) }
+                )
+            }
         }
     }
 }

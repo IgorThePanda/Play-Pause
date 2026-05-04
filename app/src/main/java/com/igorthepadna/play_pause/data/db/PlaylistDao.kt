@@ -75,6 +75,9 @@ interface PlaylistDao {
     @Query("UPDATE playlists SET coverUri = :coverUri WHERE id = :playlistId")
     suspend fun updatePlaylistCover(playlistId: String, coverUri: String?)
 
+    @Query("UPDATE playlists SET name = :name WHERE id = :playlistId")
+    suspend fun updatePlaylistName(playlistId: String, name: String)
+
     @Query("SELECT MAX(position) FROM playlist_songs WHERE playlistId = :playlistId")
     suspend fun getMaxPosition(playlistId: String): Int?
 
