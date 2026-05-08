@@ -70,8 +70,12 @@ fun ArtistDetailView(
         defaultSecondary = MaterialTheme.colorScheme.primary
     )
 
-    val (mainAlbums, singles) = remember(artist.albums) {
-        artist.albums.partition { it.songs.size > 2 }
+    val (ownAlbums, featuredAlbums) = remember(artist.albums, artist.name) {
+        artist.albums.partition { it.artist == artist.name }
+    }
+
+    val (mainAlbums, singles) = remember(ownAlbums) {
+        ownAlbums.partition { it.songs.size > 2 }
     }
 
     val unreleasedSongs = remember(artist.songs, artist.featuredSongs) {
@@ -243,6 +247,32 @@ fun ArtistDetailView(
                 }
             }
 
+            // --- Appears On Section (Albums featuring the artist) ---
+            if (featuredAlbums.isNotEmpty()) {
+                item(span = { GridItemSpan(2) }) {
+                    Column {
+                        SectionHeader(title = "Appears On", onExpandClick = { onExpandCategory("Appears On") })
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 4.dp)
+                        ) {
+                            lazyItems(featuredAlbums.take(5)) { album ->
+                                val isPlaying = album.id == currentPlayingSong?.albumId
+                                AlbumCard(
+                                    album = album,
+                                    onClick = { onAlbumClick(album) },
+                                    onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
+                                    onNavigateToArtist = onNavigateToArtist,
+                                    modifier = Modifier.width(180.dp),
+                                    columns = 2,
+                                    isPlaying = isPlaying
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // --- All Songs Section ---
             item(span = { GridItemSpan(2) }) {
                 Column(
@@ -331,6 +361,7 @@ fun CategoryDetailView(
     singles: List<Album>,
     unreleasedSongs: List<Song>,
     featuredSongs: List<Song> = emptyList(),
+    appearsOnAlbums: List<Album> = emptyList(),
     viewMode: CategoryViewMode,
     columns: Int,
     onViewModeChange: (CategoryViewMode) -> Unit,
@@ -415,8 +446,10 @@ fun CategoryDetailView(
         }
     ) { padding ->
         val effectiveColumns = if (viewMode == CategoryViewMode.GRID) columns else 1
+    val gridState = rememberLazyGridState()
         
-        LazyVerticalGrid(
+    LazyVerticalGrid(
+        state = gridState,
             columns = GridCells.Fixed(effectiveColumns),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
@@ -424,6 +457,45 @@ fun CategoryDetailView(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             when (title) {
+                "Appears On" -> {
+                    gridItems(appearsOnAlbums) { album ->
+                        val isPlaying = album.id == currentPlayingSong?.albumId
+                        when (viewMode) {
+                            CategoryViewMode.GRID -> AlbumCard(
+                                album = album,
+                                onClick = { onAlbumClick(album) },
+                                onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
+                                onNavigateToArtist = onNavigateToArtist,
+                                columns = columns,
+                                isPlaying = isPlaying
+                            )
+                            CategoryViewMode.COMPACT -> UniversalSongItem(
+                                song = album.songs.first(),
+                                isPlaying = isPlaying,
+                                onClick = { onAlbumClick(album) },
+                                onDetailsClick = {},
+                                onSwipePlayNext = {},
+                                onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
+                                label = album.title,
+                                secondaryLabel = album.artist,
+                                artworkUri = album.artworkUri
+                            )
+                            CategoryViewMode.DETAILED -> UniversalSongItem(
+                                song = album.songs.first(),
+                                isPlaying = isPlaying,
+                                onClick = { onAlbumClick(album) },
+                                onDetailsClick = {},
+                                onSwipePlayNext = {},
+                                onSwipeAddToPlaylist = {},
+                                onNavigateToArtist = onNavigateToArtist,
+                                label = album.title,
+                                secondaryLabel = album.artist,
+                                artworkUri = album.artworkUri
+                            )
+                        }
+                    }
+                }
                 "Albums" -> {
                     gridItems(mainAlbums) { album ->
                         val isPlaying = album.id == currentPlayingSong?.albumId
@@ -702,12 +774,10 @@ fun ArtistPillBanner(
             
             Spacer(modifier = Modifier.width(12.dp))
             
-            Text(
-                text = artist.name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            ArtistSubtitle(
+                artistText = artist.name,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+                mainColor = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
             
@@ -818,12 +888,13 @@ private fun ArtistHighFidelityHeader(artist: Artist, onBack: () -> Unit, onPlay:
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = artist.name,
+        ArtistSubtitle(
+            artistText = artist.name,
             style = MaterialTheme.typography.displaySmall.copy(
                 fontWeight = FontWeight.Black,
                 letterSpacing = (-1).sp
             ),
+            mainColor = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 24.dp)
         )
         

@@ -262,55 +262,21 @@ fun UniversalSongItem(
                         color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
                     )
                     if (isPlaying) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Now Playing",
+                        if (showArtist) {
+                            val artistText = secondaryLabel ?: song.artist
+                            ArtistSubtitle(
+                                artistText = artistText,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
+                                mainColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
-                            if (showArtist) {
-                                val artistText = secondaryLabel ?: song.artist
-                                Text(
-                                    text = " • $artistText",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
                         }
                     } else if (showArtist) {
                         val artistText = secondaryLabel ?: song.artist
-                        val artists = remember(artistText) { MusicRepository.splitArtists(artistText) }
-                        if (artists.size > 1) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                artists.forEachIndexed { index, artist ->
-                                    Text(
-                                        text = artist,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (index < artists.size - 1) {
-                                        Text(
-                                            text = " & ",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = artistText,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        ArtistSubtitle(
+                            artistText = artistText,
+                            style = MaterialTheme.typography.bodySmall,
+                            mainColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
 
@@ -463,34 +429,13 @@ fun PlaylistSelectionSheet(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val artists = remember(song.artist) { MusicRepository.splitArtists(song.artist) }
-                if (artists.size > 1) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        artists.forEachIndexed { index, artist ->
-                            Text(
-                                text = artist,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = artworkColors.secondary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (index < artists.size - 1) {
-                                Text(
-                                    text = " & ",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = artworkColors.secondary.copy(alpha = 0.5f),
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Text(
-                        text = song.artist,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = artworkColors.secondary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                val artistText = song.artist
+                ArtistSubtitle(
+                    artistText = artistText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    mainColor = artworkColors.secondary,
+                    separatorColor = artworkColors.secondary.copy(alpha = 0.5f)
+                )
             }
         }
 

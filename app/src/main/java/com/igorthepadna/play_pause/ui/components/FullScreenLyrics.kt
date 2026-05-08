@@ -122,6 +122,7 @@ fun FullScreenLyrics(
     val lyricInactiveAlpha by viewModel.lyricInactiveAlpha.collectAsStateWithLifecycle()
     val lyricActiveScale by viewModel.lyricActiveScale.collectAsStateWithLifecycle()
     val lyricLineSpacing by viewModel.lyricLineSpacing.collectAsStateWithLifecycle()
+    val showLyricsProgress by viewModel.showLyricsProgress.collectAsStateWithLifecycle()
 
     val lyricsListState = rememberLazyListState()
     val currentLyricIndex = remember(currentPosition, parsedLyrics) {
@@ -400,7 +401,7 @@ fun FullScreenLyrics(
                 }
 
                 // Right: Scroll Bar & Progression
-                if (!isCompactMode) {
+                if (!isCompactMode && showLyricsProgress) {
                     Column(
                         modifier = Modifier
                             .width(80.dp)

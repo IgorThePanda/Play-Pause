@@ -267,30 +267,14 @@ fun AlbumLargeHeader(
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis
                         )
-                        val artists = remember(album.artist) { MusicRepository.splitArtists(album.artist) }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            artists.forEachIndexed { index, artistName ->
-                                Text(
-                                    text = artistName,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.8f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.clickable { onNavigateToArtist(artistName) }
-                                )
-                                if (index < artists.size - 1) {
-                                    Text(
-                                        text = " & ",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White.copy(alpha = 0.4f)
-                                    )
-                                }
-                            }
-                        }
+                        val artistText = album.artist
+                        ArtistSubtitle(
+                            artistText = artistText,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                            mainColor = Color.White.copy(alpha = 0.8f),
+                            separatorColor = Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier
+                        )
                     }
                 }
             }
@@ -407,28 +391,13 @@ fun PillBanner(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val artists = remember(album.artist) { MusicRepository.splitArtists(album.artist) }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    artists.forEachIndexed { index, artistName ->
-                        Text(
-                            text = artistName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clickable { onNavigateToArtist(artistName) }
-                        )
-                        if (index < artists.size - 1) {
-                            Text(
-                                text = " & ",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            )
-                        }
-                    }
-                }
+                val artistText = album.artist
+                ArtistSubtitle(
+                    artistText = artistText,
+                    style = MaterialTheme.typography.labelSmall,
+                    mainColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
             }
             
             IconButton(

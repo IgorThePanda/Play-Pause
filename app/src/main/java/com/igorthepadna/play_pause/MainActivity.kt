@@ -441,50 +441,120 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                         onSortClick = { showSortSheet = true }
                     )
 
-                    NowPlayingBar(
-                        player = player,
-                        searchQuery = searchQuery,
-                        onSearchQueryChange = { viewModel.setSearchQuery(it) },
-                        currentFilter = currentFilter,
-                        onFilterSelected = { viewModel.setCurrentFilter(it) },
-                        showSearch = !isSubMenuOpen,
-                        onSortClick = { showSortSheet = true },
-                        onSettingsClick = { isSettingsVisible = true },
-                        onClick = { viewModel.setPlayerFullScreen(true) },
-                        onNavigateToArtist = { artistName ->
-                            val artists = MusicRepository.splitArtists(artistName)
-                            if (artists.size > 1) {
-                                viewModel.showArtistSelection(artists)
-                            } else {
-                                viewModel.clearSelections()
-                                viewModel.setSelectedArtistName(artistName)
-                                viewModel.setPlayerFullScreen(false)
-                            }
-                        },
-                        onDrag = { delta ->
-                            scope.launch {
-                                playerOffsetY.snapTo((playerOffsetY.value + delta).coerceIn(-screenHeightPx, 0f))
-                            }
-                        },
-                        onDragStopped = { velocity ->
-                            val target = when {
-                                velocity < -300f -> -screenHeightPx
-                                velocity > 300f -> 0f
-                                playerOffsetY.value < -screenHeightPx * 0.2f -> -screenHeightPx
-                                else -> 0f
-                            }
-                            viewModel.setPlayerFullScreen(target != 0f)
-                            scope.launch {
-                                playerOffsetY.animateTo(target, spring(stiffness = Spring.StiffnessLow))
-                            }
-                        },
-                        viewModel = viewModel,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .graphicsLayer { alpha = barAlpha }
-                    )
+                    val navBarAtTop by viewModel.navBarAtTop.collectAsStateWithLifecycle()
+
+                    if (navBarAtTop) {
+                        // Category Navbar at Top
+                        NowPlayingBar(
+                            player = player,
+                            searchQuery = searchQuery,
+                            onSearchQueryChange = { viewModel.setSearchQuery(it) },
+                            currentFilter = currentFilter,
+                            onFilterSelected = { viewModel.setCurrentFilter(it) },
+                            showSearch = !isSubMenuOpen,
+                            onSortClick = { showSortSheet = true },
+                            onSettingsClick = { isSettingsVisible = true },
+                            onClick = { viewModel.setPlayerFullScreen(true) },
+                            viewModel = viewModel,
+                            showPlayback = false,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .statusBarsPadding()
+                                .graphicsLayer { alpha = barAlpha }
+                        )
+
+                        // Playback Bar at Bottom
+                        NowPlayingBar(
+                            player = player,
+                            searchQuery = searchQuery,
+                            onSearchQueryChange = { viewModel.setSearchQuery(it) },
+                            currentFilter = currentFilter,
+                            onFilterSelected = { viewModel.setCurrentFilter(it) },
+                            showSearch = !isSubMenuOpen,
+                            onSortClick = { showSortSheet = true },
+                            onSettingsClick = { isSettingsVisible = true },
+                            onClick = { viewModel.setPlayerFullScreen(true) },
+                            onNavigateToArtist = { artistName ->
+                                val artists = MusicRepository.splitArtists(artistName)
+                                if (artists.size > 1) {
+                                    viewModel.showArtistSelection(artists)
+                                } else {
+                                    viewModel.clearSelections()
+                                    viewModel.setSelectedArtistName(artistName)
+                                    viewModel.setPlayerFullScreen(false)
+                                }
+                            },
+                            onDrag = { delta ->
+                                scope.launch {
+                                    playerOffsetY.snapTo((playerOffsetY.value + delta).coerceIn(-screenHeightPx, 0f))
+                                }
+                            },
+                            onDragStopped = { velocity ->
+                                val target = when {
+                                    velocity < -300f -> -screenHeightPx
+                                    velocity > 300f -> 0f
+                                    playerOffsetY.value < -screenHeightPx * 0.2f -> -screenHeightPx
+                                    else -> 0f
+                                }
+                                viewModel.setPlayerFullScreen(target != 0f)
+                                scope.launch {
+                                    playerOffsetY.animateTo(target, spring(stiffness = Spring.StiffnessLow))
+                                }
+                            },
+                            viewModel = viewModel,
+                            showCategories = false,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .graphicsLayer { alpha = barAlpha }
+                        )
+                    } else {
+                        NowPlayingBar(
+                            player = player,
+                            searchQuery = searchQuery,
+                            onSearchQueryChange = { viewModel.setSearchQuery(it) },
+                            currentFilter = currentFilter,
+                            onFilterSelected = { viewModel.setCurrentFilter(it) },
+                            showSearch = !isSubMenuOpen,
+                            onSortClick = { showSortSheet = true },
+                            onSettingsClick = { isSettingsVisible = true },
+                            onClick = { viewModel.setPlayerFullScreen(true) },
+                            onNavigateToArtist = { artistName ->
+                                val artists = MusicRepository.splitArtists(artistName)
+                                if (artists.size > 1) {
+                                    viewModel.showArtistSelection(artists)
+                                } else {
+                                    viewModel.clearSelections()
+                                    viewModel.setSelectedArtistName(artistName)
+                                    viewModel.setPlayerFullScreen(false)
+                                }
+                            },
+                            onDrag = { delta ->
+                                scope.launch {
+                                    playerOffsetY.snapTo((playerOffsetY.value + delta).coerceIn(-screenHeightPx, 0f))
+                                }
+                            },
+                            onDragStopped = { velocity ->
+                                val target = when {
+                                    velocity < -300f -> -screenHeightPx
+                                    velocity > 300f -> 0f
+                                    playerOffsetY.value < -screenHeightPx * 0.2f -> -screenHeightPx
+                                    else -> 0f
+                                }
+                                viewModel.setPlayerFullScreen(target != 0f)
+                                scope.launch {
+                                    playerOffsetY.animateTo(target, spring(stiffness = Spring.StiffnessLow))
+                                }
+                            },
+                            viewModel = viewModel,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .graphicsLayer { alpha = barAlpha }
+                        )
+                    }
                 }
             }
         }

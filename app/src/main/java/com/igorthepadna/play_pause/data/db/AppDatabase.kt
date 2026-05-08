@@ -11,13 +11,15 @@ import androidx.room.RoomDatabase
         PlaylistSongEntity::class,
         SongEntity::class,
         AlbumEntity::class,
-        ArtistEntity::class
+        ArtistEntity::class,
+        PlayEvent::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
+    abstract fun statsDao(): StatsDao
 
     companion object {
         @Volatile

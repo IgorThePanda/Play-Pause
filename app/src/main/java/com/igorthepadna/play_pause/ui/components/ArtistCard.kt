@@ -107,16 +107,15 @@ fun ArtistCard(
         }
         if (showMetadata) {
             Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = artist.name,
+            ArtistSubtitle(
+                artistText = artist.name,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Black,
                     letterSpacing = (-0.5).sp,
-                    lineHeight = 20.sp
+                    lineHeight = 20.sp,
+                    textAlign = TextAlign.Center
                 ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
+                mainColor = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
             )
             if (showDetails) {

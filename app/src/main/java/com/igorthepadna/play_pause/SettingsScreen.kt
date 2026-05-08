@@ -24,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -47,8 +48,12 @@ fun MainSettingsScreen(
 ) {
     var currentTab by remember { mutableStateOf(SettingsTab.MAIN) }
 
-    BackHandler(enabled = currentTab != SettingsTab.MAIN) {
-        currentTab = SettingsTab.MAIN
+    BackHandler(enabled = true) {
+        if (currentTab != SettingsTab.MAIN) {
+            currentTab = SettingsTab.MAIN
+        } else {
+            onBack()
+        }
     }
 
     AnimatedContent(
@@ -65,6 +70,10 @@ fun MainSettingsScreen(
         when (tab) {
             SettingsTab.MAIN -> MainSettingsCategories(
                 onNavigate = { currentTab = it },
+                onShowStats = {
+                    onBack()
+                    viewModel.setShowStats()
+                },
                 onBack = onBack
             )
             SettingsTab.PLAYBACK -> PlaybackSettingsScreen(
@@ -104,6 +113,7 @@ fun MainSettingsScreen(
 @Composable
 fun MainSettingsCategories(
     onNavigate: (SettingsTab) -> Unit,
+    onShowStats: () -> Unit,
     onBack: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -128,6 +138,12 @@ fun MainSettingsCategories(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             CategoryCard(
+                title = "Statistics",
+                subtitle = "Listening history and top tracks",
+                icon = Icons.Rounded.Timeline,
+                onClick = onShowStats
+            )
+            CategoryCard(
                 title = "Playback",
                 subtitle = "Gapless, crossfade and audio engine",
                 icon = Icons.Rounded.PlayCircle,
@@ -135,7 +151,7 @@ fun MainSettingsCategories(
             )
             CategoryCard(
                 title = "Appearance",
-                subtitle = "Themes, colors and lyrics editor",
+                subtitle = "Themes, navbar order and lyrics editor",
                 icon = Icons.Rounded.Palette,
                 onClick = { onNavigate(SettingsTab.APPEARANCE) }
             )
@@ -286,6 +302,8 @@ fun AppearanceSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNav
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             val colorSchemeType by viewModel.colorSchemeType.collectAsStateWithLifecycle()
             val useArtworkAccent by viewModel.useArtworkAccent.collectAsStateWithLifecycle()
+            val showBitrateInfo by viewModel.showBitrateInfo.collectAsStateWithLifecycle()
+            val navBarAtTop by viewModel.navBarAtTop.collectAsStateWithLifecycle()
 
             SettingsSection(title = "Theming") {
                 SettingsHeaderItem(title = "Theme Mode")
@@ -351,6 +369,13 @@ fun AppearanceSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNav
                     checked = useArtworkAccent,
                     onCheckedChange = { viewModel.setUseArtworkAccent(it) }
                 )
+                SettingsSwitchItem(
+                    title = "Show Bitrate Info",
+                    subtitle = "Show song quality in full-screen player",
+                    icon = Icons.Rounded.HighQuality,
+                    checked = showBitrateInfo,
+                    onCheckedChange = { viewModel.setShowBitrateInfo(it) }
+                )
             }
 
             SettingsSection(title = "Lyrics") {
@@ -360,6 +385,90 @@ fun AppearanceSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNav
                     icon = Icons.Rounded.Lyrics,
                     onClick = onNavigateToLyrics
                 )
+            }
+
+            SettingsSection(title = "Navigation") {
+                val navOrder by viewModel.navBarOrder.collectAsStateWithLifecycle()
+                
+                SettingsSwitchItem(
+                    title = "Category Bar at Top",
+                    subtitle = "Move the library categories to the top",
+                    icon = Icons.Rounded.VerticalAlignTop,
+                    checked = navBarAtTop,
+                    onCheckedChange = { viewModel.setNavBarAtTop(it) }
+                )
+
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Reorder by tapping the arrows",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .padding(4.dp)
+                ) {
+                    navOrder.forEachIndexed { index, filter ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                filter.icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                filter.label,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            
+                            Row {
+                                IconButton(
+                                    onClick = {
+                                        if (index > 0) {
+                                            val newList = navOrder.toMutableList()
+                                            val temp = newList[index]
+                                            newList[index] = newList[index - 1]
+                                            newList[index - 1] = temp
+                                            viewModel.setNavBarOrder(newList)
+                                        }
+                                    },
+                                    enabled = index > 0,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Rounded.KeyboardArrowUp, null)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (index < navOrder.size - 1) {
+                                            val newList = navOrder.toMutableList()
+                                            val temp = newList[index]
+                                            newList[index] = newList[index + 1]
+                                            newList[index + 1] = temp
+                                            viewModel.setNavBarOrder(newList)
+                                        }
+                                    },
+                                    enabled = index < navOrder.size - 1,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Rounded.KeyboardArrowDown, null)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -418,11 +527,42 @@ fun LibrarySettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 @Composable
 fun BackupSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigateToPlaylistExport: () -> Unit) {
     val context = LocalContext.current
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
+
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         uri?.let { context.contentResolver.openOutputStream(it)?.let { os -> viewModel.exportPlaylists(os) } }
     }
+    val exportStatsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { context.contentResolver.openOutputStream(it)?.let { os -> viewModel.exportStats(os) } }
+    }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { context.contentResolver.openInputStream(it)?.let { isStream -> viewModel.importPlaylists(isStream) } }
+    }
+
+    if (showClearHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryDialog = false },
+            title = { Text("Clear All History?", fontWeight = FontWeight.Bold) },
+            text = { Text("This will permanently delete all your listening statistics and history. This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearStats()
+                        showClearHistoryDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Clear Everything", fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+            icon = { Icon(Icons.Rounded.Warning, null, tint = MaterialTheme.colorScheme.error) },
+            shape = RoundedCornerShape(28.dp)
+        )
     }
 
     Scaffold(
@@ -459,6 +599,21 @@ fun BackupSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigat
                     subtitle = "Restore playlists from JSON or M3U file",
                     icon = Icons.Rounded.Download,
                     onClick = { importLauncher.launch(arrayOf("application/json", "audio/mpegurl", "audio/x-mpegurl", "application/octet-stream")) }
+                )
+            }
+
+            SettingsSection(title = "Statistics & History") {
+                SettingsActionItem(
+                    title = "Export Statistics",
+                    subtitle = "Save your listening history to a JSON file",
+                    icon = Icons.Rounded.BarChart,
+                    onClick = { exportStatsLauncher.launch("play_pause_stats.json") }
+                )
+                SettingsActionItem(
+                    title = "Clear All History",
+                    subtitle = "Reset all your listening data",
+                    icon = Icons.Rounded.DeleteSweep,
+                    onClick = { showClearHistoryDialog = true }
                 )
             }
         }

@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.igorthepadna.play_pause.ui.screens.StatsScreen
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -329,8 +330,11 @@ private fun DetailViewSwitcher(
                 val artist = (detailItem.first as? Artist)
                 val category = (detailItem.second as? String)
                 if (artist != null && category != null) {
-                    val (mainAlbums, singles) = remember(artist.albums) {
-                        artist.albums.partition { it.songs.size > 2 }
+                    val (ownAlbums, featuredAlbums) = remember(artist.albums, artist.name) {
+                        artist.albums.partition { it.artist == artist.name }
+                    }
+                    val (mainAlbums, singles) = remember(ownAlbums) {
+                        ownAlbums.partition { it.songs.size > 2 }
                     }
                     val unreleasedSongs = remember(artist.songs, artist.featuredSongs) {
                         (artist.songs + artist.featuredSongs).filter { song ->
@@ -351,6 +355,7 @@ private fun DetailViewSwitcher(
                         singles = singles,
                         unreleasedSongs = unreleasedSongs,
                         featuredSongs = artist.featuredSongs,
+                        appearsOnAlbums = featuredAlbums,
                         viewMode = settings.viewMode,
                         columns = settings.columns,
                         onViewModeChange = { newMode ->
@@ -376,6 +381,14 @@ private fun DetailViewSwitcher(
                         albumArtMap = albumArtMap,
                         currentPlayingId = currentPlayingId,
                         currentPlayingSong = currentPlayingSong
+                    )
+                }
+            }
+            "STATS" -> {
+                if (viewModel != null) {
+                    StatsScreen(
+                        viewModel = viewModel,
+                        onBack = { viewModel.popSelection() }
                     )
                 }
             }
@@ -508,8 +521,9 @@ private fun MainLibraryContent(
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val listTopPadding = 84.dp + statusBarPadding
-        val bottomPadding = 140.dp
+        val bottomPadding = if (currentPlayingSong != null) 176.dp + navigationBarPadding else 112.dp + navigationBarPadding
         val contentPadding = PaddingValues(top = listTopPadding, bottom = bottomPadding, start = 16.dp, end = 16.dp)
         val scrollbarPadding = PaddingValues(bottom = bottomPadding)
 

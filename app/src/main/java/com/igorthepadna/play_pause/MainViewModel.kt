@@ -29,6 +29,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -115,12 +117,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _useArtworkAccent = MutableStateFlow(prefs.getBoolean("use_artwork_accent", true))
     val useArtworkAccent = _useArtworkAccent.asStateFlow()
 
+    private val _showBitrateInfo = MutableStateFlow(prefs.getBoolean("show_bitrate_info", true))
+    val showBitrateInfo = _showBitrateInfo.asStateFlow()
+
+    private val _navBarAtTop = MutableStateFlow(prefs.getBoolean("navbar_at_top", false))
+    val navBarAtTop = _navBarAtTop.asStateFlow()
+
     // General Settings
     private val _gaplessPlayback = MutableStateFlow(prefs.getBoolean("gapless_playback", true))
     val gaplessPlayback = _gaplessPlayback.asStateFlow()
 
     private val _scanOnlyMusicFolder = MutableStateFlow(prefs.getBoolean("scan_only_music", false))
     val scanOnlyMusicFolder = _scanOnlyMusicFolder.asStateFlow()
+
+    private val _navBarOrder = MutableStateFlow(
+        prefs.getString("navbar_order", null)?.split(",")?.mapNotNull { name ->
+            runCatching { LibraryFilter.valueOf(name) }.getOrNull()
+        } ?: LibraryFilter.entries
+    )
+    val navBarOrder = _navBarOrder.asStateFlow()
+
+    fun setNavBarOrder(order: List<LibraryFilter>) {
+        _navBarOrder.value = order
+        prefs.edit().putString("navbar_order", order.joinToString(",") { it.name }).apply()
+    }
 
     // Lyric Settings
     private val _lyricFontSize = MutableStateFlow(prefs.getFloat("lyric_font_size", 28f))
@@ -359,6 +379,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         data class PlaylistInfo(val id: String) : Selection()
         @Serializable
         data class Genre(val name: String) : Selection()
+        @Serializable
+        data object Stats : Selection()
     }
 
     private val _selectionStack = MutableStateFlow<List<Selection>>(
@@ -384,8 +406,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (artist != null) (artist to last.category) else null
             }
             is Selection.Playlist -> playlists.find { it.id == last.id }
-            is Selection.PlaylistInfo -> playlists.find { it.id == last.id }
+            is Selection.PlaylistInfo -> last
             is Selection.Genre -> last.name
+            is Selection.Stats -> "STATS"
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -460,6 +483,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setShowStats() {
+        _selectionStack.value = _selectionStack.value + Selection.Stats
+        saveSelectionStack()
+    }
+
     fun setSelectedPlaylistInfoId(id: String?) {
         if (id == null) {
             clearSelections()
@@ -495,6 +523,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setUseArtworkAccent(use: Boolean) {
         _useArtworkAccent.value = use
         prefs.edit().putBoolean("use_artwork_accent", use).apply()
+    }
+
+    fun setShowBitrateInfo(show: Boolean) {
+        _showBitrateInfo.value = show
+        prefs.edit().putBoolean("show_bitrate_info", show).apply()
+    }
+
+    fun setNavBarAtTop(top: Boolean) {
+        _navBarAtTop.value = top
+        prefs.edit().putBoolean("navbar_at_top", top).apply()
     }
 
     fun setGaplessPlayback(enabled: Boolean) {
@@ -838,13 +876,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .build()
     }
 
+    private var lastRecordedMediaId: Long = -1L
+    private var currentSongPlayTime: Long = 0L
+    private var lastTimerTick: Long = 0L
+    private val PLAY_THRESHOLD_MS = 15000L
+
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val id = mediaItem?.mediaId?.toLongOrNull() ?: -1L
+            if (id != _currentPlayingId.value) {
+                currentSongPlayTime = 0L
+                lastRecordedMediaId = -1L
+            }
             _currentPlayingId.value = id
-            prefs.edit().putLong("last_played_id", id).apply()
-            // Don't clear manually here, let loadLyricsForCurrentSong handle it gracefully
+            prefs?.edit()?.putLong("last_played_id", id)?.apply()
             loadLyricsForCurrentSong()
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) {
+                lastTimerTick = System.currentTimeMillis()
+                startTrackingStats()
+            }
         }
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -854,6 +907,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) {
                 savePlaybackPosition()
+            }
+        }
+    }
+
+    private var statsJob: Job? = null
+    private fun startTrackingStats() {
+        statsJob?.cancel()
+        statsJob = viewModelScope.launch {
+            while (currentCoroutineContext().isActive) {
+                val player = _player.value
+                if (player != null && player.isPlaying) {
+                    val now = System.currentTimeMillis()
+                    val delta = now - lastTimerTick
+                    lastTimerTick = now
+                    
+                    val currentId = player.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L
+                    if (currentId != -1L && currentId != lastRecordedMediaId) {
+                        currentSongPlayTime += delta
+                        if (currentSongPlayTime >= PLAY_THRESHOLD_MS) {
+                            repository.recordPlayEvent(currentId)
+                            lastRecordedMediaId = currentId
+                        }
+                    }
+                }
+                delay(1000)
             }
         }
     }
@@ -869,6 +947,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         getApplication<Application>().contentResolver.unregisterContentObserver(mediaStoreObserver)
         _player.value?.removeListener(playerListener)
+    }
+
+    fun getTopTracks(limit: Int = 10) = repository.getTopTracks(limit)
+    fun getTopArtists(limit: Int = 10) = repository.getTopArtists(limit)
+    fun getTotalPlayCount() = repository.getTotalPlayCount()
+    fun getDailyPlayCounts(since: Long) = repository.getDailyPlayCounts(since)
+    fun clearStats() = viewModelScope.launch { repository.clearStats() }
+
+    fun exportStats(outputStream: OutputStream) {
+        viewModelScope.launch {
+            // Reusing exportPlaylists logic which now includes playEvents
+            repository.exportPlaylists(outputStream)
+        }
     }
 
     fun exportPlaylists(outputStream: OutputStream) {

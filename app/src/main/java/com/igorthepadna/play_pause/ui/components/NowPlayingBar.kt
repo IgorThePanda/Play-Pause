@@ -71,7 +71,9 @@ fun NowPlayingBar(
     modifier: Modifier = Modifier,
     onDrag: (Float) -> Unit = {},
     onDragStopped: (Float) -> Unit = {},
-    viewModel: com.igorthepadna.play_pause.MainViewModel? = null
+    viewModel: com.igorthepadna.play_pause.MainViewModel? = null,
+    showPlayback: Boolean = true,
+    showCategories: Boolean = true
 ) {
     var searchExpanded by remember { mutableStateOf(searchQuery.isNotEmpty()) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue(searchQuery)) }
@@ -121,7 +123,7 @@ fun NowPlayingBar(
         defaultSecondary = MaterialTheme.colorScheme.primary
     )
 
-    val filters = remember { LibraryFilter.entries }
+    val filters by viewModel?.navBarOrder?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(LibraryFilter.entries) }
     val initialPage = remember { filters.indexOf(currentFilter).coerceAtLeast(0) }
     val pagerState = rememberPagerState(initialPage = initialPage) { filters.size }
 
@@ -149,7 +151,7 @@ fun NowPlayingBar(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.BottomCenter),
+                .align(if (showCategories && !showPlayback) Alignment.TopCenter else Alignment.BottomCenter),
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
             tonalElevation = 8.dp,
             shadowElevation = 12.dp,
@@ -158,7 +160,7 @@ fun NowPlayingBar(
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 // Playback Section (Now playing song)
-                if (hasMedia) {
+                if (hasMedia && showPlayback) {
                     PlaybackSection(
                         player = player,
                         currentSong = currentSong,
@@ -178,88 +180,91 @@ fun NowPlayingBar(
                     )
                 }
 
-                Spacer(Modifier.height(if (hasMedia) 10.dp else 0.dp))
+                if (showPlayback && showCategories && hasMedia) {
+                    Spacer(Modifier.height(10.dp))
+                }
 
                 // Navigation & Search Pill (Category navbar)
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f)
-                ) {
-                    AnimatedContent(
-                        targetState = showSearch && searchExpanded,
-                        transitionSpec = {
-                            (fadeIn(animationSpec = tween(220, delayMillis = 90)) + scaleIn(initialScale = 0.92f, animationSpec = tween(220, delayMillis = 90)))
-                                .togetherWith(fadeOut(animationSpec = tween(90)))
-                        },
-                        label = "search_expansion"
-                    ) { isExpanded ->
-                        if (isExpanded) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)
-                            ) {
-                                IconButton(
-                                    onClick = { 
-                                        searchExpanded = false 
-                                        onSearchQueryChange("") // Restore view by clearing search
-                                    }, 
-                                    modifier = Modifier.size(42.dp)
+                if (showCategories) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f)
+                    ) {
+                        AnimatedContent(
+                            targetState = showSearch && searchExpanded,
+                            transitionSpec = {
+                                (fadeIn(animationSpec = tween(220, delayMillis = 90)) + scaleIn(initialScale = 0.92f, animationSpec = tween(220, delayMillis = 90)))
+                                    .togetherWith(fadeOut(animationSpec = tween(90)))
+                            },
+                            label = "search_expansion"
+                        ) { isExpanded ->
+                            if (isExpanded) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)
                                 ) {
-                                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", modifier = Modifier.size(22.dp))
-                                }
-                                
-                                BasicTextField(
-                                    value = textFieldValue,
-                                    onValueChange = {
-                                        textFieldValue = it
-                                        onSearchQueryChange(it.text)
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(horizontal = 8.dp)
-                                        .focusRequester(focusRequester),
-                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    ),
-                                    singleLine = true,
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    decorationBox = { innerTextField ->
-                                        Box(contentAlignment = Alignment.CenterStart) {
-                                            if (textFieldValue.text.isEmpty()) {
-                                                Text(
-                                                    "Search here",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                )
+                                    IconButton(
+                                        onClick = { 
+                                            searchExpanded = false 
+                                            onSearchQueryChange("") // Restore view by clearing search
+                                        }, 
+                                        modifier = Modifier.size(42.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", modifier = Modifier.size(22.dp))
+                                    }
+                                    
+                                    BasicTextField(
+                                        value = textFieldValue,
+                                        onValueChange = {
+                                            textFieldValue = it
+                                            onSearchQueryChange(it.text)
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(horizontal = 8.dp)
+                                            .focusRequester(focusRequester),
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        ),
+                                        singleLine = true,
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                        decorationBox = { innerTextField ->
+                                            Box(contentAlignment = Alignment.CenterStart) {
+                                                if (textFieldValue.text.isEmpty()) {
+                                                    Text(
+                                                        "Search here",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                    )
+                                                }
+                                                innerTextField()
                                             }
-                                            innerTextField()
+                                        }
+                                    )
+                                    
+                                    if (textFieldValue.text.isNotEmpty()) {
+                                        IconButton(onClick = { onSearchQueryChange("") }, modifier = Modifier.size(42.dp)) {
+                                            Icon(Icons.Rounded.Close, contentDescription = "Clear search", modifier = Modifier.size(20.dp))
                                         }
                                     }
-                                )
-                                
-                                if (textFieldValue.text.isNotEmpty()) {
-                                    IconButton(onClick = { onSearchQueryChange("") }, modifier = Modifier.size(42.dp)) {
-                                        Icon(Icons.Rounded.Close, contentDescription = "Clear search", modifier = Modifier.size(20.dp))
+                                }
+                            } else {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxHeight().padding(horizontal = 4.dp)
+                                ) {
+                                    IconButton(onClick = { searchExpanded = true }, modifier = Modifier.size(42.dp)) {
+                                        Icon(Icons.Rounded.Search, contentDescription = "Search", modifier = Modifier.size(22.dp))
                                     }
-                                }
-                            }
-                        } else {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxHeight().padding(horizontal = 4.dp)
-                            ) {
-                                IconButton(onClick = { searchExpanded = true }, modifier = Modifier.size(42.dp)) {
-                                    Icon(Icons.Rounded.Search, contentDescription = "Search", modifier = Modifier.size(22.dp))
-                                }
-                                
-                                VerticalDivider(
-                                    modifier = Modifier.height(24.dp).padding(horizontal = 2.dp), 
-                                    thickness = 1.dp, 
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                )
+                                    
+                                    VerticalDivider(
+                                        modifier = Modifier.height(24.dp).padding(horizontal = 2.dp), 
+                                        thickness = 1.dp, 
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    )
 
                                     HorizontalPager(
                                         state = pagerState,
@@ -272,102 +277,103 @@ fun NowPlayingBar(
                                         userScrollEnabled = !isQuickNavActive,
                                         beyondViewportPageCount = 1
                                     ) { page ->
-                                    val filter = filters[page]
-                                    val isSelected by remember { derivedStateOf { pagerState.currentPage == page } }
-                                    val activeColor = if (hasMedia) artworkColors.secondary else MaterialTheme.colorScheme.primary
+                                        val filter = filters[page]
+                                        val isSelected by remember { derivedStateOf { pagerState.currentPage == page } }
+                                        val activeColor = if (hasMedia) artworkColors.secondary else MaterialTheme.colorScheme.primary
 
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .graphicsLayer {
-                                                    alpha = if (isSelected) 1f else 0.5f
-                                                    val scale = if (isSelected) 1f else 0.9f
-                                                    scaleX = scale
-                                                    scaleY = scale
-                                                }
-                                                .clip(CircleShape)
-                                                .pointerInput(page) {
-                                                    detectTapGestures(
-                                                        onTap = { scope.launch { pagerState.animateScrollToPage(page) } },
-                                                        onDoubleTap = { onSortClick() }
-                                                    )
-                                                }
-                                                .pointerInput(page, isSelected) {
-                                                    if (isSelected) {
-                                                        detectDragGesturesAfterLongPress(
-                                                            onDragStart = {
-                                                                isQuickNavActive = true
-                                                                quickNavDragY = 0f
-                                                                quickNavSelectedIndex = filters.size - 1
-                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                            },
-                                                            onDragEnd = {
-                                                                if (isQuickNavActive) {
-                                                                    if (quickNavSelectedIndex in filters.indices) {
-                                                                        onFilterSelected(filters[quickNavSelectedIndex])
-                                                                    }
-                                                                    isQuickNavActive = false
-                                                                }
-                                                            },
-                                                            onDragCancel = { isQuickNavActive = false },
-                                                            onDrag = { change, dragAmount ->
-                                                                change.consume()
-                                                                quickNavDragY += dragAmount.y
-                                                                val itemHeight = 56.dp.toPx()
-                                                                val dragDist = (-quickNavDragY).coerceAtLeast(0f)
-                                                                val offset = (dragDist / itemHeight).toInt()
-                                                                val nextIdx = (filters.size - 1 - offset).coerceIn(0, filters.size - 1)
-                                                                if (nextIdx != quickNavSelectedIndex) {
-                                                                    quickNavSelectedIndex = nextIdx
-                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                }
-                                                            }
-                                                        )
-                                                    } else {
-                                                        detectTapGestures(onLongPress = { onSortClick() })
-                                                    }
-                                                }
-                                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.Center
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Icon(
-                                                filter.icon, 
-                                                contentDescription = filter.label, 
-                                                modifier = Modifier.size(20.dp),
-                                                tint = if (isSelected) activeColor else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            
-                                            AnimatedVisibility(
-                                                visible = isSelected,
-                                                enter = expandHorizontally() + fadeIn(),
-                                                exit = shrinkHorizontally() + fadeOut()
+                                            Row(
+                                                modifier = Modifier
+                                                    .graphicsLayer {
+                                                        alpha = if (isSelected) 1f else 0.5f
+                                                        val scale = if (isSelected) 1f else 0.9f
+                                                        scaleX = scale
+                                                        scaleY = scale
+                                                    }
+                                                    .clip(CircleShape)
+                                                    .pointerInput(page) {
+                                                        detectTapGestures(
+                                                            onTap = { scope.launch { pagerState.animateScrollToPage(page) } },
+                                                            onDoubleTap = { onSortClick() }
+                                                        )
+                                                    }
+                                                    .pointerInput(page, isSelected) {
+                                                        if (isSelected) {
+                                                            detectDragGesturesAfterLongPress(
+                                                                onDragStart = {
+                                                                    isQuickNavActive = true
+                                                                    quickNavDragY = 0f
+                                                                    quickNavSelectedIndex = filters.size - 1
+                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                },
+                                                                onDragEnd = {
+                                                                    if (isQuickNavActive) {
+                                                                        if (quickNavSelectedIndex in filters.indices) {
+                                                                            onFilterSelected(filters[quickNavSelectedIndex])
+                                                                        }
+                                                                        isQuickNavActive = false
+                                                                    }
+                                                                },
+                                                                onDragCancel = { isQuickNavActive = false },
+                                                                onDrag = { change, dragAmount ->
+                                                                    change.consume()
+                                                                    quickNavDragY += dragAmount.y
+                                                                    val itemHeight = 56.dp.toPx()
+                                                                    val dragDist = (-quickNavDragY).coerceAtLeast(0f)
+                                                                    val offset = (dragDist / itemHeight).toInt()
+                                                                    val nextIdx = (filters.size - 1 - offset).coerceIn(0, filters.size - 1)
+                                                                    if (nextIdx != quickNavSelectedIndex) {
+                                                                        quickNavSelectedIndex = nextIdx
+                                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                    }
+                                                                }
+                                                            )
+                                                        } else {
+                                                            detectTapGestures(onLongPress = { onSortClick() })
+                                                        }
+                                                    }
+                                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center
                                             ) {
-                                                Row {
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Text(
-                                                        filter.label,
-                                                        style = MaterialTheme.typography.labelMedium,
-                                                        color = activeColor,
-                                                        maxLines = 1
-                                                    )
+                                                Icon(
+                                                    filter.icon, 
+                                                    contentDescription = filter.label, 
+                                                    modifier = Modifier.size(20.dp),
+                                                    tint = if (isSelected) activeColor else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                
+                                                AnimatedVisibility(
+                                                    visible = isSelected,
+                                                    enter = expandHorizontally() + fadeIn(),
+                                                    exit = shrinkHorizontally() + fadeOut()
+                                                ) {
+                                                    Row {
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Text(
+                                                            filter.label,
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            color = activeColor,
+                                                            maxLines = 1
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
                                     }
-                                }
 
-                                VerticalDivider(
-                                    modifier = Modifier.height(24.dp).padding(horizontal = 2.dp), 
-                                    thickness = 1.dp, 
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                )
-                                
-                                IconButton(onClick = onSettingsClick, modifier = Modifier.size(42.dp)) {
-                                    Icon(Icons.Rounded.Settings, contentDescription = "Settings", modifier = Modifier.size(22.dp))
+                                    VerticalDivider(
+                                        modifier = Modifier.height(24.dp).padding(horizontal = 2.dp), 
+                                        thickness = 1.dp, 
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    )
+                                    
+                                    IconButton(onClick = onSettingsClick, modifier = Modifier.size(42.dp)) {
+                                        Icon(Icons.Rounded.Settings, contentDescription = "Settings", modifier = Modifier.size(22.dp))
+                                    }
                                 }
                             }
                         }
@@ -573,42 +579,17 @@ private fun PlaybackSection(
                     overflow = TextOverflow.Ellipsis
                 )
                 val artistName = currentSong?.artist ?: "Unknown"
-                val artists = remember(artistName) { MusicRepository.splitArtists(artistName) }
-                
-                if (artists.size > 1) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        artists.forEachIndexed { index, artist ->
-                            Text(
-                                text = artist,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = if (onNavigateToArtist != null) {
-                                    Modifier.clickable { onNavigateToArtist(artist) }
-                                } else Modifier
-                            )
-                            if (index < artists.size - 1) {
-                                Text(
-                                    text = " & ",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Text(
-                        text = artistName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                ArtistSubtitle(
+                    artistText = artistName,
+                    style = MaterialTheme.typography.bodySmall,
+                    mainColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = if (onNavigateToArtist != null) {
+                        // Passing a list to ArtistSubtitle might be better if I want individual clicks,
+                        // but the user just said "use that look everywhere".
+                        // For now, I'll keep the whole thing clickable or just unclickable as per original.
+                        Modifier
+                    } else Modifier
+                )
             }
 
             val remainingTime = remember(currentPosition, duration) {

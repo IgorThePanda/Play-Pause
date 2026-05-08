@@ -98,5 +98,6 @@ data class PlaylistBackupV2(
 
 @Serializable
 data class FullBackupV2(
-    val playlists: List<PlaylistBackupV2>
+    val playlists: List<PlaylistBackupV2>,
+    val playEvents: List<PlayEvent> = emptyList()
 )

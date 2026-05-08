@@ -314,13 +314,11 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                                             overflow = TextOverflow.Ellipsis,
                                             color = if (isCurrent) contentColorFor(artworkColors.secondary) else MaterialTheme.colorScheme.onSurface
                                         )
-                                        Text(
-                                            item.mediaMetadata.artist?.toString() ?: "Unknown",
+                                        ArtistSubtitle(
+                                            artistText = item.mediaMetadata.artist?.toString() ?: "Unknown",
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = if (isCurrent) contentColorFor(artworkColors.secondary).copy(alpha = 0.8f)
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            mainColor = if (isCurrent) contentColorFor(artworkColors.secondary).copy(alpha = 0.8f)
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
 

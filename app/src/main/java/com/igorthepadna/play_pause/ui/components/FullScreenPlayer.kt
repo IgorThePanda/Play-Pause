@@ -523,15 +523,12 @@ private fun PlayerSongInfoSection(
                 }
             }
         }
-        Text(
-            text = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist",
-            style = MaterialTheme.typography.titleLarge.copy(
-                color = artworkColors.secondary
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        val artistName = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist"
+        ArtistSubtitle(
+            artistText = artistName,
+            style = MaterialTheme.typography.titleLarge,
+            mainColor = artworkColors.secondary,
             modifier = Modifier.clickable {
-                val artistName = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist"
                 val splitArtists = MusicRepository.splitArtists(artistName)
                 if (splitArtists.size > 1) {
                     viewModel.showArtistSelection(splitArtists)
@@ -550,10 +547,13 @@ private fun PlayerProgressSection(
     isPlaying: Boolean,
     artworkColors: ArtworkColors,
     currentBitrate: String?,
+    viewModel: MainViewModel,
     onSeek: (Float) -> Unit,
     onDragStart: () -> Unit,
     onDragEnd: () -> Unit
 ) {
+    val showBitrateInfo by viewModel.showBitrateInfo.collectAsStateWithLifecycle()
+
     Column(modifier = Modifier.fillMaxWidth()) {
         SquigglySlider(
             value = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f,
@@ -579,34 +579,36 @@ private fun PlayerProgressSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
-            val bitrateStr = currentBitrate ?: "Loading..."
-            
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .background(artworkColors.tertiary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-                    .border(1.dp, artworkColors.tertiary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
-                val qualityIcon = when {
-                    bitrateValue >= 1000 -> Icons.Rounded.Album
-                    bitrateValue >= 256 -> Icons.Rounded.HighQuality
-                    else -> Icons.Rounded.Sd
+            if (showBitrateInfo) {
+                val bitrateStr = currentBitrate ?: "Loading..."
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .background(artworkColors.tertiary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                        .border(1.dp, artworkColors.tertiary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
+                    val qualityIcon = when {
+                        bitrateValue >= 1000 -> Icons.Rounded.Album
+                        bitrateValue >= 256 -> Icons.Rounded.HighQuality
+                        else -> Icons.Rounded.Sd
+                    }
+                    Icon(
+                        imageVector = qualityIcon, 
+                        contentDescription = null, 
+                        modifier = Modifier.size(16.dp), 
+                        tint = artworkColors.tertiary
+                    )
+                    Text(
+                        text = bitrateStr.uppercase(), 
+                        style = MaterialTheme.typography.labelSmall, 
+                        color = artworkColors.tertiary,
+                        letterSpacing = 0.5.sp
+                    )
                 }
-                Icon(
-                    imageVector = qualityIcon, 
-                    contentDescription = null, 
-                    modifier = Modifier.size(16.dp), 
-                    tint = artworkColors.tertiary
-                )
-                Text(
-                    text = bitrateStr.uppercase(), 
-                    style = MaterialTheme.typography.labelSmall, 
-                    color = artworkColors.tertiary,
-                    letterSpacing = 0.5.sp
-                )
             }
 
             Text(
@@ -1066,6 +1068,7 @@ fun FullScreenPlayer(
                     isPlaying = isPlaying,
                     artworkColors = artworkColors,
                     currentBitrate = currentBitrate,
+                    viewModel = viewModel,
                     onSeek = {
                         val newPos = (it * duration).toLong()
                         player.seekTo(newPos)

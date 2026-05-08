@@ -229,32 +229,11 @@ fun AlbumCard(
                                 )
                             }
                             if (showArtist) {
-                                val artists = remember(artist) { MusicRepository.splitArtists(artist) }
-                                if (artists.size > 1) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        artists.forEachIndexed { index, artistName ->
-                                            Text(
-                                                text = artistName,
-                                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (isLightMode) Color.DarkGray else Color.LightGray),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (index < artists.size - 1) {
-                                                Text(
-                                                    text = " & ",
-                                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp, color = (if (isLightMode) Color.DarkGray else Color.LightGray).copy(alpha = 0.5f))
-                                                )
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    Text(
-                                        text = artist,
-                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (isLightMode) Color.DarkGray else Color.LightGray),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                                ArtistSubtitle(
+                                    artistText = artist,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
+                                    mainColor = if (isLightMode) Color.DarkGray else Color.LightGray
+                                )
                             }
                         }
                     }

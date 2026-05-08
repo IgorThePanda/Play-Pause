@@ -172,33 +172,13 @@ fun SongDetailsContent(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                val artists = remember(song.artist) { MusicRepository.splitArtists(song.artist) }
-                if (artists.size > 1) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        artists.forEachIndexed { index, artist ->
-                            Text(
-                                text = artist,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = artworkColors.secondary,
-                                modifier = if (onNavigateToArtist != null) Modifier.clickable { onNavigateToArtist(artist) } else Modifier
-                            )
-                            if (index < artists.size - 1) {
-                                Text(
-                                    text = " & ",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    color = artworkColors.secondary.copy(alpha = 0.5f)
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Text(
-                        text = song.artist,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = artworkColors.secondary,
-                        modifier = if (onNavigateToArtist != null) Modifier.clickable { onNavigateToArtist(song.artist) } else Modifier
-                    )
-                }
+                val artistText = song.artist
+                ArtistSubtitle(
+                    artistText = artistText,
+                    style = MaterialTheme.typography.titleLarge,
+                    mainColor = artworkColors.secondary,
+                    modifier = if (onNavigateToArtist != null) Modifier.clickable { onNavigateToArtist(artistText) } else Modifier
+                )
             }
 
             Spacer(modifier = Modifier.width(16.dp))
