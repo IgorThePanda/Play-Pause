@@ -26,21 +26,23 @@ interface StatsDao {
     @Query("""
         SELECT songId, COUNT(*) as playCount 
         FROM play_events 
+        WHERE timestamp >= :since
         GROUP BY songId 
         ORDER BY playCount DESC 
         LIMIT :limit
     """)
-    fun getTopTracks(limit: Int): Flow<List<TopTrack>>
+    fun getTopTracks(limit: Int, since: Long = 0): Flow<List<TopTrack>>
 
     @Query("""
         SELECT s.artist as artistName, COUNT(*) as playCount 
         FROM play_events p
         JOIN cached_songs s ON p.songId = s.id
+        WHERE p.timestamp >= :since
         GROUP BY s.artist 
         ORDER BY playCount DESC 
         LIMIT :limit
     """)
-    fun getTopArtists(limit: Int): Flow<List<TopArtist>>
+    fun getTopArtists(limit: Int, since: Long = 0): Flow<List<TopArtist>>
 
     @Query("SELECT COUNT(*) FROM play_events")
     fun getTotalPlayCount(): Flow<Long>

@@ -48,7 +48,9 @@ fun AlbumDetailView(
     onSongDetails: (Song) -> Unit,
     onPlaySongs: (List<Song>, Int, Boolean?) -> Unit,
     onSwipePlayNext: (Song) -> Unit,
-    onSwipeAddToPlaylist: (Song) -> Unit
+    onSwipeAddToPlaylist: (Song) -> Unit,
+    onPinClick: () -> Unit = {},
+    isPinned: Boolean = false
 ) {
     val scrollState = rememberLazyListState()
     val artworkColors = rememberArtworkColors(
@@ -92,7 +94,9 @@ fun AlbumDetailView(
                     onShuffle = { onPlaySongs(sortedSongs, 0, true) },
                     sortOrder = sortOrder,
                     onToggleSort = { sortOrder = (sortOrder + 1) % 3 },
-                    onNavigateToArtist = onNavigateToArtist
+                    onNavigateToArtist = onNavigateToArtist,
+                    onPinClick = onPinClick,
+                    isPinned = isPinned
                 )
             }
 
@@ -187,7 +191,9 @@ fun AlbumLargeHeader(
     onShuffle: () -> Unit,
     sortOrder: Int,
     onToggleSort: () -> Unit,
-    onNavigateToArtist: (String) -> Unit
+    onNavigateToArtist: (String) -> Unit,
+    onPinClick: () -> Unit = {},
+    isPinned: Boolean = false
 ) {
     Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
         Spacer(Modifier.height(8.dp))
@@ -237,6 +243,31 @@ fun AlbumLargeHeader(
                         contentDescription = "Back",
                         modifier = Modifier.align(Alignment.Center),
                         tint = Color.White
+                    )
+                }
+
+                // Pin Button Pill
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable { onPinClick() }
+                ) {
+                    AsyncImage(
+                        model = album.artworkUri,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .matchParentSize()
+                            .blur(40.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                    Box(modifier = Modifier.matchParentSize().background(if (isPinned) artworkColors.secondary.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.2f)))
+                    Icon(
+                        imageVector = Icons.Rounded.PushPin,
+                        contentDescription = "Pin to Hub",
+                        modifier = Modifier.align(Alignment.Center).size(20.dp),
+                        tint = if (isPinned) artworkColors.secondary else Color.White
                     )
                 }
 

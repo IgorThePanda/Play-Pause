@@ -1,40 +1,58 @@
 package com.igorthepadna.play_pause
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.Image
-import coil.compose.AsyncImage
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import com.igorthepadna.play_pause.data.Playlist
-import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.igorthepadna.play_pause.utils.verticalScrollbar
+import coil.compose.AsyncImage
+import com.igorthepadna.play_pause.data.LibraryFilter
+import com.igorthepadna.play_pause.data.MusicRepository
+import com.igorthepadna.play_pause.data.SortOrder
+import com.igorthepadna.play_pause.data.SortType
 
 enum class SettingsTab {
     MAIN, PLAYBACK, APPEARANCE, LYRICS_EDITOR, LIBRARY, BACKUP, PLAYLIST_EXPORT, ABOUT
@@ -70,10 +88,6 @@ fun MainSettingsScreen(
         when (tab) {
             SettingsTab.MAIN -> MainSettingsCategories(
                 onNavigate = { currentTab = it },
-                onShowStats = {
-                    onBack()
-                    viewModel.setShowStats()
-                },
                 onBack = onBack
             )
             SettingsTab.PLAYBACK -> PlaybackSettingsScreen(
@@ -113,7 +127,6 @@ fun MainSettingsScreen(
 @Composable
 fun MainSettingsCategories(
     onNavigate: (SettingsTab) -> Unit,
-    onShowStats: () -> Unit,
     onBack: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -137,12 +150,6 @@ fun MainSettingsCategories(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            CategoryCard(
-                title = "Statistics",
-                subtitle = "Listening history and top tracks",
-                icon = Icons.Rounded.Timeline,
-                onClick = onShowStats
-            )
             CategoryCard(
                 title = "Playback",
                 subtitle = "Gapless, crossfade and audio engine",
@@ -202,19 +209,14 @@ fun CategoryCard(
                     .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    icon, 
-                    null, 
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(24.dp)
-                )
+                Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
             }
-            Spacer(Modifier.width(20.dp))
+            Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
         }
     }
 }
@@ -238,22 +240,23 @@ fun PlaybackSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            val gaplessPlayback by viewModel.gaplessPlayback.collectAsStateWithLifecycle()
-            SettingsSection(title = "Audio Engine") {
+            val gapless by viewModel.gaplessPlayback.collectAsStateWithLifecycle()
+            val shuffleByDefault by viewModel.shuffleByDefault.collectAsStateWithLifecycle()
+            val repeatByDefault by viewModel.repeatByDefault.collectAsStateWithLifecycle()
+            val resetOnPrevious by viewModel.resetOnPrevious.collectAsStateWithLifecycle()
+            val lyricsByDefault by viewModel.lyricsByDefault.collectAsStateWithLifecycle()
+
+            SettingsSection(title = "Engine") {
                 SettingsSwitchItem(
                     title = "Gapless Playback",
-                    subtitle = "Remove silence between tracks",
-                    icon = Icons.Rounded.MusicNote,
-                    checked = gaplessPlayback,
+                    subtitle = "Eliminate silence between tracks",
+                    icon = Icons.Rounded.MotionPhotosOn,
+                    checked = gapless,
                     onCheckedChange = { viewModel.setGaplessPlayback(it) }
                 )
             }
 
-            val shuffleByDefault by viewModel.shuffleByDefault.collectAsStateWithLifecycle()
-            val repeatByDefault by viewModel.repeatByDefault.collectAsStateWithLifecycle()
-            val lyricsByDefault by viewModel.lyricsByDefault.collectAsStateWithLifecycle()
-
-            SettingsSection(title = "Default Behavior") {
+            SettingsSection(title = "Behaviors") {
                 SettingsSwitchItem(
                     title = "Shuffle by default",
                     subtitle = "Automatically shuffle when playing a list",
@@ -262,19 +265,45 @@ fun PlaybackSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     onCheckedChange = { viewModel.setShuffleByDefault(it) }
                 )
                 SettingsSwitchItem(
-                    title = "Loop by default",
-                    subtitle = "Enable 'Repeat All' for new playback sessions",
+                    title = "Repeat by default",
+                    subtitle = "Keep playing the same list/song",
                     icon = Icons.Rounded.Repeat,
                     checked = repeatByDefault,
                     onCheckedChange = { viewModel.setRepeatByDefault(it) }
                 )
                 SettingsSwitchItem(
                     title = "Lyrics by default",
-                    subtitle = "Show lyrics on the album cover when starting a song",
+                    subtitle = "Open lyrics view when starting playback",
                     icon = Icons.Rounded.Lyrics,
                     checked = lyricsByDefault,
                     onCheckedChange = { viewModel.setLyricsByDefault(it) }
                 )
+                SettingsSwitchItem(
+                    title = "Reset on Previous",
+                    subtitle = "Restart song if past 3 seconds",
+                    icon = Icons.Rounded.SkipPrevious,
+                    checked = resetOnPrevious,
+                    onCheckedChange = { viewModel.setResetOnPrevious(it) }
+                )
+            }
+            
+            val playNextBehavior by viewModel.playNextBehavior.collectAsStateWithLifecycle()
+            SettingsSection(title = "Queue") {
+                SettingsHeaderItem(title = "Play Next Position")
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeOptionChip(
+                        selected = playNextBehavior == MainViewModel.PlayNextBehavior.TOP,
+                        label = "Top",
+                        onClick = { viewModel.setPlayNextBehavior(MainViewModel.PlayNextBehavior.TOP) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionChip(
+                        selected = playNextBehavior == MainViewModel.PlayNextBehavior.BOTTOM,
+                        label = "Bottom",
+                        onClick = { viewModel.setPlayNextBehavior(MainViewModel.PlayNextBehavior.BOTTOM) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }
@@ -399,11 +428,12 @@ fun AppearanceSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNav
                 )
 
                 Spacer(Modifier.height(12.dp))
+                SettingsHeaderItem(title = "Library Categories Order")
                 Text(
                     "Reorder by tapping the arrows",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                    modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)
                 )
 
                 Column(
@@ -461,6 +491,74 @@ fun AppearanceSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNav
                                         }
                                     },
                                     enabled = index < navOrder.size - 1,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Rounded.KeyboardArrowDown, null)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+                SettingsHeaderItem(title = "Hub Pages Order")
+                val hubOrder by viewModel.hubOrder.collectAsStateWithLifecycle()
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .padding(4.dp)
+                ) {
+                    hubOrder.forEachIndexed { index, filter ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                filter.icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                filter.label,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            
+                            Row {
+                                IconButton(
+                                    onClick = {
+                                        if (index > 0) {
+                                            val newList = hubOrder.toMutableList()
+                                            val temp = newList[index]
+                                            newList[index] = newList[index - 1]
+                                            newList[index - 1] = temp
+                                            viewModel.setHubOrder(newList)
+                                        }
+                                    },
+                                    enabled = index > 0,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Rounded.KeyboardArrowUp, null)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (index < hubOrder.size - 1) {
+                                            val newList = hubOrder.toMutableList()
+                                            val temp = newList[index]
+                                            newList[index] = newList[index + 1]
+                                            newList[index + 1] = temp
+                                            viewModel.setHubOrder(newList)
+                                        }
+                                    },
+                                    enabled = index < hubOrder.size - 1,
                                     modifier = Modifier.size(32.dp)
                                 ) {
                                     Icon(Icons.Rounded.KeyboardArrowDown, null)
@@ -850,12 +948,21 @@ fun LyricSettingsScreen(
 
             SettingsSection(title = "Interactions") {
                 val showLyricsProgress by viewModel.showLyricsProgress.collectAsStateWithLifecycle()
+                val lyricAlignmentCenter by viewModel.lyricAlignmentCenter.collectAsStateWithLifecycle()
+                
                 SettingsSwitchItem(
                     title = "Show Progress Bar",
                     subtitle = "Show the squiggly progress bar in fullscreen lyrics",
                     icon = Icons.Rounded.LinearScale,
                     checked = showLyricsProgress,
                     onCheckedChange = { viewModel.setShowLyricsProgress(it) }
+                )
+                SettingsSwitchItem(
+                    title = "Center Lyrics",
+                    subtitle = "Align lyrics text to the middle of the screen",
+                    icon = Icons.Rounded.FormatAlignCenter,
+                    checked = lyricAlignmentCenter,
+                    onCheckedChange = { viewModel.setLyricAlignmentCenter(it) }
                 )
             }
             
@@ -1019,7 +1126,7 @@ fun SettingsActionItem(
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

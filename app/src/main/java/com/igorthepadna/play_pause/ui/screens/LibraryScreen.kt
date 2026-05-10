@@ -50,10 +50,12 @@ import com.igorthepadna.play_pause.data.Playlist
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.ui.unit.sp
+import com.igorthepadna.play_pause.data.GridSizeMode
+import com.igorthepadna.play_pause.ViewModeSettings
 import com.igorthepadna.play_pause.ui.components.GenreCard
 import com.igorthepadna.play_pause.ui.components.CategoryViewMode
-import com.igorthepadna.play_pause.ViewModeSettings
 import com.igorthepadna.play_pause.ui.components.UniversalSongItem
+import com.igorthepadna.play_pause.utils.calculateGridColumns
 import com.igorthepadna.play_pause.utils.verticalScrollbar
 import com.igorthepadna.play_pause.utils.ScrollbarLabel
 
@@ -101,15 +103,20 @@ private fun LibraryTopBarActions(
             if (settings.viewMode == CategoryViewMode.GRID) {
                 FilledIconButton(
                     onClick = {
-                        val newColumns = if (settings.columns >= 4) 1 else settings.columns + 1
-                        onUpdateViewModeSettings(settings.copy(columns = newColumns))
+                        val nextMode = when (settings.gridSizeMode) {
+                            GridSizeMode.AUTO -> GridSizeMode.SMALL
+                            GridSizeMode.SMALL -> GridSizeMode.MEDIUM
+                            GridSizeMode.MEDIUM -> GridSizeMode.LARGE
+                            GridSizeMode.LARGE -> GridSizeMode.AUTO
+                        }
+                        onUpdateViewModeSettings(settings.copy(gridSizeMode = nextMode))
                     },
                     modifier = Modifier.size(40.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
                     )
                 ) {
-                    Text(settings.columns.toString(), fontWeight = FontWeight.Black, fontSize = 14.sp)
+                    Text(settings.gridSizeMode.toString(), fontWeight = FontWeight.Black, fontSize = 14.sp)
                 }
                 Spacer(Modifier.width(8.dp))
             }
@@ -183,6 +190,7 @@ fun LibraryScreen(
     val currentPlayingId by viewModel?.currentPlayingId?.collectAsStateWithLifecycle(-1L) ?: remember { mutableLongStateOf(-1L) }
     val currentPlayingSong by viewModel?.currentPlayingSong?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
     val viewModeSettings by viewModel?.viewModeSettings?.collectAsStateWithLifecycle(emptyMap()) ?: remember { mutableStateOf(emptyMap()) }
+    val pinnedItems by viewModel?.pinnedItems?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -212,6 +220,7 @@ fun LibraryScreen(
         listState = listState,
         gridState = gridState,
         tabSortSettings = tabSortSettings,
+        pinnedItems = pinnedItems,
         onPlaySongs = onPlaySongs,
         onSongDetails = onSongDetails,
         onAddToPlaylist = onAddToPlaylist,
@@ -243,6 +252,7 @@ private fun DetailViewSwitcher(
     listState: androidx.compose.foundation.lazy.LazyListState,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     tabSortSettings: TabSortSettings,
+    pinnedItems: List<com.igorthepadna.play_pause.data.PinnedItem> = emptyList(),
     onPlaySongs: (List<Song>, Int, Boolean?) -> Unit,
     onSongDetails: (Song) -> Unit,
     onAddToPlaylist: (Song) -> Unit,
@@ -279,11 +289,17 @@ private fun DetailViewSwitcher(
         label = "library_transition"
     ) { (filter, detailItem) ->
         when (detailItem) {
-            is Album -> AlbumDetailView(
-                album = detailItem,
-                currentPlayingId = currentPlayingId,
-                onBack = { viewModel?.popSelection() },
-                onNavigateToArtist = { artistName ->
+            is Album -> {
+                val isPinned = remember(pinnedItems, detailItem) {
+                    pinnedItems.any { it.type == com.igorthepadna.play_pause.data.PinnedType.ALBUM && it.mediaId == detailItem.id.toString() }
+                }
+                AlbumDetailView(
+                    album = detailItem,
+                    currentPlayingId = currentPlayingId,
+                    isPinned = isPinned,
+                    onPinClick = { viewModel?.togglePin(com.igorthepadna.play_pause.data.PinnedType.ALBUM, detailItem.id.toString()) },
+                    onBack = { viewModel?.popSelection() },
+                    onNavigateToArtist = { artistName ->
                     val artists = MusicRepository.splitArtists(artistName)
                     if (artists.size > 1) {
                         viewModel?.showArtistSelection(artists)
@@ -298,14 +314,21 @@ private fun DetailViewSwitcher(
                     onShowMessage("Added to Play Next: ${song.title}")
                 },
                 onSwipeAddToPlaylist = onAddToPlaylist
-            )
-            is Artist -> ArtistDetailView(
-                artist = detailItem,
-                currentPlayingId = currentPlayingId,
-                currentPlayingSong = currentPlayingSong,
-                albumArtMap = albumArtMap,
-                onBack = { viewModel?.popSelection() },
-                onAlbumClick = { viewModel?.setSelectedAlbumId(it.id) },
+                )
+            }
+            is Artist -> {
+                val isPinned = remember(pinnedItems, detailItem) {
+                    pinnedItems.any { it.type == com.igorthepadna.play_pause.data.PinnedType.ARTIST && it.mediaId == detailItem.name }
+                }
+                ArtistDetailView(
+                    artist = detailItem,
+                    currentPlayingId = currentPlayingId,
+                    currentPlayingSong = currentPlayingSong,
+                    albumArtMap = albumArtMap,
+                    isPinned = isPinned,
+                    onPinClick = { viewModel?.togglePin(com.igorthepadna.play_pause.data.PinnedType.ARTIST, detailItem.name) },
+                    onBack = { viewModel?.popSelection() },
+                    onAlbumClick = { viewModel?.setSelectedAlbumId(it.id) },
                 onPlayArtist = { songs, index, shuffle -> onPlaySongs(songs, index, shuffle) },
                 onSongClick = { song ->
                     onPlaySongs(detailItem.songs, detailItem.songs.indexOf(song), null)
@@ -325,7 +348,8 @@ private fun DetailViewSwitcher(
                     viewModel?.setSelectedArtistCategory(detailItem.name, category)
                 },
                 viewModel = viewModel
-            )
+                )
+            }
             is Pair<*, *> -> {
                 val artist = (detailItem.first as? Artist)
                 val category = (detailItem.second as? String)
@@ -347,6 +371,7 @@ private fun DetailViewSwitcher(
                         viewMode = if (category == "Albums" || category == "Singles & EPs") CategoryViewMode.GRID
                         else CategoryViewMode.DETAILED
                     )
+                    val effectiveColumns = calculateGridColumns(settings.gridSizeMode)
 
                     CategoryDetailView(
                         title = category,
@@ -357,12 +382,12 @@ private fun DetailViewSwitcher(
                         featuredSongs = artist.featuredSongs,
                         appearsOnAlbums = featuredAlbums,
                         viewMode = settings.viewMode,
-                        columns = settings.columns,
+                        gridSizeMode = settings.gridSizeMode,
                         onViewModeChange = { newMode ->
                             viewModel?.updateViewModeSettings(categoryKey, settings.copy(viewMode = newMode))
                         },
-                        onColumnsChange = { newColumns ->
-                            viewModel?.updateViewModeSettings(categoryKey, settings.copy(columns = newColumns))
+                        onGridSizeModeChange = { nextMode ->
+                            viewModel?.updateViewModeSettings(categoryKey, settings.copy(gridSizeMode = nextMode))
                         },
                         onBack = { viewModel?.popSelection() },
                         onAlbumClick = { viewModel?.setSelectedAlbumId(it.id) },
@@ -392,13 +417,19 @@ private fun DetailViewSwitcher(
                     )
                 }
             }
-            is Playlist -> PlaylistDetailView(
-                playlist = detailItem,
-                playlistSongs = selectedPlaylistSongs,
-                currentPlayingId = currentPlayingId,
-                albumArtMap = albumArtMap,
-                onBack = { viewModel?.popSelection() },
-                onPlaySongs = onPlaySongs,
+            is Playlist -> {
+                val isPinned = remember(pinnedItems, detailItem) {
+                    pinnedItems.any { it.type == com.igorthepadna.play_pause.data.PinnedType.PLAYLIST && it.mediaId == detailItem.id }
+                }
+                PlaylistDetailView(
+                    playlist = detailItem,
+                    playlistSongs = selectedPlaylistSongs,
+                    currentPlayingId = currentPlayingId,
+                    albumArtMap = albumArtMap,
+                    isPinned = isPinned,
+                    onPinClick = { viewModel?.togglePin(com.igorthepadna.play_pause.data.PinnedType.PLAYLIST, detailItem.id) },
+                    onBack = { viewModel?.popSelection() },
+                    onPlaySongs = onPlaySongs,
                 onSongDetails = onSongDetails,
                 onSwipePlayNext = { song ->
                     viewModel?.addPlayNext(song)
@@ -417,7 +448,8 @@ private fun DetailViewSwitcher(
                 onAddSongs = { viewModel?.setShowSongSelectionForPlaylist(detailItem.id) },
                 onInfoClick = { viewModel?.setSelectedPlaylistInfoId(detailItem.id) },
                 viewModel = viewModel
-            )
+                )
+            }
             is com.igorthepadna.play_pause.MainViewModel.Selection.PlaylistInfo -> {
                 val playlist = remember(playlists) { playlists.find { it.id == detailItem.id } }
                 if (playlist != null) {
@@ -536,7 +568,7 @@ private fun MainLibraryContent(
                 LibraryFilter.ALBUMS -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_albums"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
-                    val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
+                    val effectiveColumns = calculateGridColumns(if (settings.viewMode == CategoryViewMode.GRID) settings.gridSizeMode else GridSizeMode.LARGE)
 
                     LazyVerticalGrid(
                         state = gridState,
@@ -624,7 +656,7 @@ private fun MainLibraryContent(
                 LibraryFilter.ARTISTS -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_artists"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
-                    val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
+                    val effectiveColumns = calculateGridColumns(if (settings.viewMode == CategoryViewMode.GRID) settings.gridSizeMode else GridSizeMode.LARGE)
 
                     LazyVerticalGrid(
                         state = gridState,
@@ -698,7 +730,7 @@ private fun MainLibraryContent(
                 LibraryFilter.PLAYLISTS -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_playlists"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
-                    val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
+                    val effectiveColumns = calculateGridColumns(if (settings.viewMode == CategoryViewMode.GRID) settings.gridSizeMode else GridSizeMode.LARGE)
 
                     LazyVerticalGrid(
                         state = gridState,
@@ -797,7 +829,7 @@ private fun MainLibraryContent(
                 LibraryFilter.GENRES -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_genres"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
-                    val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) settings.columns else 1
+                    val effectiveColumns = calculateGridColumns(if (settings.viewMode == CategoryViewMode.GRID) settings.gridSizeMode else GridSizeMode.LARGE)
 
                     LazyVerticalGrid(
                         state = gridState,
@@ -850,11 +882,12 @@ private fun MainLibraryContent(
                 else -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_songs"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
+                    val effectiveColumns = calculateGridColumns(settings.gridSizeMode)
                     
                     if (settings.viewMode == CategoryViewMode.GRID) {
                         LazyVerticalGrid(
                             state = gridState,
-                            columns = GridCells.Fixed(settings.columns),
+                            columns = GridCells.Fixed(effectiveColumns),
                             contentPadding = contentPadding,
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -883,7 +916,7 @@ private fun MainLibraryContent(
                                     artist = song.artist,
                                     artworkUri = albumArt,
                                     onClick = onSongClick,
-                                    columns = settings.columns,
+                                    columns = effectiveColumns,
                                     isPlaying = isPlaying,
                                     songCount = 1,
                                     allCovers = emptyList(),

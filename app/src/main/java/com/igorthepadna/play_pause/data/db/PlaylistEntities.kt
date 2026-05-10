@@ -101,3 +101,11 @@ data class FullBackupV2(
     val playlists: List<PlaylistBackupV2>,
     val playEvents: List<PlayEvent> = emptyList()
 )
+
+@androidx.room.Entity(tableName = "pinned_items")
+data class PinnedItemEntity(
+    @androidx.room.PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val type: String,
+    val mediaId: String,
+    val addedAt: Long = System.currentTimeMillis()
+)

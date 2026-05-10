@@ -62,6 +62,8 @@ fun PlaylistDetailView(
     onEditCover: () -> Unit = {},
     onAddSongs: () -> Unit = {},
     onInfoClick: () -> Unit = {},
+    onPinClick: () -> Unit = {},
+    isPinned: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel? = null
 ) {
@@ -110,7 +112,9 @@ fun PlaylistDetailView(
                     onPlay = { onPlaySongs(playlistSongs, 0, null) },
                     onShuffle = { onPlaySongs(playlistSongs, 0, true) },
                     onEditCover = onEditCover,
-                    onInfoClick = onInfoClick
+                    onInfoClick = onInfoClick,
+                    onPinClick = onPinClick,
+                    isPinned = isPinned
                 )
             }
 
@@ -219,7 +223,9 @@ fun PlaylistHighFidelityHeader(
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
     onEditCover: () -> Unit,
-    onInfoClick: () -> Unit
+    onInfoClick: () -> Unit,
+    onPinClick: () -> Unit = {},
+    isPinned: Boolean = false
 ) {
     Column(
         modifier = Modifier
@@ -289,6 +295,35 @@ fun PlaylistHighFidelityHeader(
                     Icons.AutoMirrored.Rounded.ArrowBack,
                     "Back",
                     tint = Color.White,
+                    modifier = Modifier.align(Alignment.Center).size(20.dp)
+                )
+            }
+
+            // Glassmorphic Pin Button (Top Right, shifted left)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 12.dp, end = 60.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
+                    .clickable { onPinClick() }
+            ) {
+                Box(modifier = Modifier.matchParentSize()) {
+                    if (artworkUri != null) {
+                        AsyncImage(
+                            model = artworkUri,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().blur(24.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    Box(modifier = Modifier.fillMaxSize().background(if (isPinned) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.25f)))
+                }
+                Icon(
+                    Icons.Rounded.PushPin,
+                    "Pin to Hub",
+                    tint = if (isPinned) MaterialTheme.colorScheme.primary else Color.White,
                     modifier = Modifier.align(Alignment.Center).size(20.dp)
                 )
             }

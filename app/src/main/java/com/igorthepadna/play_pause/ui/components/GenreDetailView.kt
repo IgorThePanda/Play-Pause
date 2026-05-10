@@ -35,9 +35,11 @@ import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.MainViewModel
 import com.igorthepadna.play_pause.ViewModeSettings
 import com.igorthepadna.play_pause.data.Album
+import com.igorthepadna.play_pause.data.GridSizeMode
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.ui.components.UniversalSongItem
 import com.igorthepadna.play_pause.utils.ArtworkColors
+import com.igorthepadna.play_pause.utils.calculateGridColumns
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
 
@@ -63,7 +65,7 @@ fun GenreDetailView(
     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
     
     val viewMode = settings.viewMode
-    val columns = settings.columns
+    val effectiveColumns = if (viewMode == CategoryViewMode.GRID) calculateGridColumns(settings.gridSizeMode) else 1
 
     val firstSongArtwork = remember(songs) { songs.firstOrNull()?.albumArtUri }
     val artworkColors = rememberArtworkColors(
@@ -86,8 +88,6 @@ fun GenreDetailView(
             end = 16.dp,
             bottom = 140.dp
         )
-
-        val effectiveColumns = if (viewMode == CategoryViewMode.GRID) columns else 1
 
         LazyVerticalGrid(
             state = gridState,
@@ -124,7 +124,7 @@ fun GenreDetailView(
                         ),
                         onClick = { onSongClick(song) },
                         modifier = Modifier.padding(4.dp),
-                        columns = columns,
+                        columns = effectiveColumns,
                         isPlaying = song.id == currentPlayingId
                     )
                 }
@@ -184,13 +184,18 @@ fun GenreDetailView(
             if (viewMode == CategoryViewMode.GRID) {
                 TextButton(
                     onClick = {
-                        val newColumns = if (columns >= 4) 1 else columns + 1
-                        viewModel?.updateViewModeSettings(categoryKey, settings.copy(columns = newColumns))
+                        val nextMode = when (settings.gridSizeMode) {
+                            GridSizeMode.AUTO -> GridSizeMode.SMALL
+                            GridSizeMode.SMALL -> GridSizeMode.MEDIUM
+                            GridSizeMode.MEDIUM -> GridSizeMode.LARGE
+                            GridSizeMode.LARGE -> GridSizeMode.AUTO
+                        }
+                        viewModel?.updateViewModeSettings(categoryKey, settings.copy(gridSizeMode = nextMode))
                     },
                     contentPadding = PaddingValues(0.dp),
                     modifier = Modifier.size(32.dp)
                 ) {
-                    Text("$columns", fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Text(settings.gridSizeMode.toString(), fontWeight = FontWeight.Black, fontSize = 16.sp)
                 }
             }
 

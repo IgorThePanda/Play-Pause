@@ -39,6 +39,7 @@ import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.MainViewModel
 import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.Artist
+import com.igorthepadna.play_pause.data.GridSizeMode
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.ui.components.UniversalSongItem
 import com.igorthepadna.play_pause.utils.ArtworkColors
@@ -61,6 +62,8 @@ fun ArtistDetailView(
     onPlaySpecificSongs: (List<Song>, Int, Boolean?) -> Unit = { _, _, _ -> },
     onNavigateToArtist: (String) -> Unit = {},
     onExpandCategory: (String) -> Unit = {},
+    onPinClick: () -> Unit = {},
+    isPinned: Boolean = false,
     viewModel: MainViewModel? = null
 ) {
     val gridState = rememberLazyGridState()
@@ -119,7 +122,9 @@ fun ArtistDetailView(
                 ArtistHighFidelityHeader(
                     artist = artist,
                     onBack = onBack,
-                    onPlay = { onPlayArtist(allSongs, 0, null) }
+                    onPlay = { onPlayArtist(allSongs, 0, null) },
+                    onPinClick = onPinClick,
+                    isPinned = isPinned
                 )
             }
 
@@ -363,9 +368,9 @@ fun CategoryDetailView(
     featuredSongs: List<Song> = emptyList(),
     appearsOnAlbums: List<Album> = emptyList(),
     viewMode: CategoryViewMode,
-    columns: Int,
+    gridSizeMode: GridSizeMode,
     onViewModeChange: (CategoryViewMode) -> Unit,
-    onColumnsChange: (Int) -> Unit,
+    onGridSizeModeChange: (GridSizeMode) -> Unit,
     onBack: () -> Unit,
     onAlbumClick: (Album) -> Unit,
     onSongClick: (Song) -> Unit,
@@ -407,13 +412,18 @@ fun CategoryDetailView(
                             if (viewMode == CategoryViewMode.GRID) {
                                 TextButton(
                                     onClick = {
-                                        val newColumns = if (columns >= 4) 1 else columns + 1
-                                        onColumnsChange(newColumns)
+                                        val nextMode = when (gridSizeMode) {
+                                            GridSizeMode.AUTO -> GridSizeMode.SMALL
+                                            GridSizeMode.SMALL -> GridSizeMode.MEDIUM
+                                            GridSizeMode.MEDIUM -> GridSizeMode.LARGE
+                                            GridSizeMode.LARGE -> GridSizeMode.AUTO
+                                        }
+                                        onGridSizeModeChange(nextMode)
                                     },
                                     contentPadding = PaddingValues(0.dp),
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Text("$columns", fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                    Text(gridSizeMode.toString(), fontWeight = FontWeight.Black, fontSize = 16.sp)
                                 }
                             }
 
@@ -445,14 +455,23 @@ fun CategoryDetailView(
             )
         }
     ) { padding ->
-        val effectiveColumns = if (viewMode == CategoryViewMode.GRID) columns else 1
-    val gridState = rememberLazyGridState()
+        val effectiveColumns = if (viewMode == CategoryViewMode.GRID) com.igorthepadna.play_pause.utils.calculateGridColumns(gridSizeMode) else 1
+        val gridState = rememberLazyGridState()
+        val bottomPadding = PaddingValues(
+            top = 16.dp,
+            start = 16.dp,
+            end = 16.dp,
+            bottom = 140.dp
+        )
         
-    LazyVerticalGrid(
-        state = gridState,
+        LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(effectiveColumns),
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScrollbar(gridState, padding = bottomPadding),
+            contentPadding = bottomPadding,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -466,7 +485,7 @@ fun CategoryDetailView(
                                 onClick = { onAlbumClick(album) },
                                 onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns,
+                                columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
@@ -505,7 +524,7 @@ fun CategoryDetailView(
                                 onClick = { onAlbumClick(album) },
                                 onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns,
+                                columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
@@ -544,7 +563,7 @@ fun CategoryDetailView(
                                 onClick = { onAlbumClick(album) },
                                 onPlayClick = { onPlaySpecificSongs(album.songs, 0, null) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns,
+                                columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
@@ -590,7 +609,7 @@ fun CategoryDetailView(
                                 onClick = { onSongClick(song) },
                                 onPlayClick = { onSongClick(song) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns,
+                                columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
@@ -633,7 +652,7 @@ fun CategoryDetailView(
                                 onClick = { onSongClick(song) },
                                 onPlayClick = { onSongClick(song) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns,
+                                columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
@@ -677,7 +696,7 @@ fun CategoryDetailView(
                                 onClick = { onSongClick(song) },
                                 onPlayClick = { onSongClick(song) },
                                 onNavigateToArtist = onNavigateToArtist,
-                                columns = columns,
+                                columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
                             CategoryViewMode.COMPACT -> UniversalSongItem(
@@ -787,7 +806,13 @@ fun ArtistPillBanner(
 }
 
 @Composable
-private fun ArtistHighFidelityHeader(artist: Artist, onBack: () -> Unit, onPlay: () -> Unit) {
+private fun ArtistHighFidelityHeader(
+    artist: Artist,
+    onBack: () -> Unit,
+    onPlay: () -> Unit,
+    onPinClick: () -> Unit = {},
+    isPinned: Boolean = false
+) {
     val model = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri
     
     Column(
@@ -853,6 +878,33 @@ private fun ArtistHighFidelityHeader(artist: Artist, onBack: () -> Unit, onPlay:
                     Icons.AutoMirrored.Rounded.ArrowBack, 
                     "Back", 
                     tint = Color.White, 
+                    modifier = Modifier.align(Alignment.Center).size(20.dp)
+                )
+            }
+
+            // Glassmorphic Pin Button (Top Right)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
+                    .clickable { onPinClick() }
+            ) {
+                Box(modifier = Modifier.matchParentSize()) {
+                    AsyncImage(
+                        model = model,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize().blur(24.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                    Box(modifier = Modifier.fillMaxSize().background(if (isPinned) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.25f)))
+                }
+                Icon(
+                    Icons.Rounded.PushPin, 
+                    "Pin to Hub", 
+                    tint = if (isPinned) MaterialTheme.colorScheme.primary else Color.White,
                     modifier = Modifier.align(Alignment.Center).size(20.dp)
                 )
             }

@@ -123,6 +123,7 @@ fun FullScreenLyrics(
     val lyricActiveScale by viewModel.lyricActiveScale.collectAsStateWithLifecycle()
     val lyricLineSpacing by viewModel.lyricLineSpacing.collectAsStateWithLifecycle()
     val showLyricsProgress by viewModel.showLyricsProgress.collectAsStateWithLifecycle()
+    val lyricAlignmentCenter by viewModel.lyricAlignmentCenter.collectAsStateWithLifecycle()
 
     val lyricsListState = rememberLazyListState()
     val currentLyricIndex = remember(currentPosition, parsedLyrics) {
@@ -223,7 +224,7 @@ fun FullScreenLyrics(
                         LazyColumn(
                             state = lyricsListState,
                             modifier = Modifier.fillMaxSize().padding(end = 16.dp),
-                            horizontalAlignment = Alignment.Start,
+                            horizontalAlignment = if (lyricAlignmentCenter) Alignment.CenterHorizontally else Alignment.Start,
                             verticalArrangement = Arrangement.spacedBy(lyricLineSpacing.dp),
                             contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp)
                         ) {
@@ -237,6 +238,7 @@ fun FullScreenLyrics(
                                     inactiveAlpha = if (isCompactMode) 1f else lyricInactiveAlpha,
                                     activeScale = if (isCompactMode) 1f else lyricActiveScale,
                                     lineSpacing = lyricLineSpacing,
+                                    centered = lyricAlignmentCenter,
                                     onSeek = { timestamp ->
                                         if (!isCompactMode) {
                                             player.seekTo(timestamp)
@@ -249,7 +251,7 @@ fun FullScreenLyrics(
                     } else if (!displayLyrics.isNullOrBlank()) {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize().padding(end = 16.dp),
-                            horizontalAlignment = Alignment.Start,
+                            horizontalAlignment = if (lyricAlignmentCenter) Alignment.CenterHorizontally else Alignment.Start,
                             contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp)
                         ) {
                             item {
@@ -262,7 +264,7 @@ fun FullScreenLyrics(
                                         letterSpacing = (-0.5).sp
                                     ),
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
-                                    textAlign = TextAlign.Start,
+                                    textAlign = if (lyricAlignmentCenter) TextAlign.Center else TextAlign.Start,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
@@ -454,13 +456,14 @@ fun FullScreenLyricLineView(
     inactiveAlpha: Float,
     activeScale: Float,
     lineSpacing: Float,
+    centered: Boolean = false,
     onSeek: (Long) -> Unit
 ) {
     val lineAlpha by animateFloatAsState(if (isActive) 1f else inactiveAlpha, label = "line_alpha")
     val lineScale by animateFloatAsState(if (isActive) activeScale else 1.0f, label = "line_scale")
 
     Column(
-        horizontalAlignment = Alignment.Start,
+        horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = (lineSpacing / 4).dp)
@@ -477,13 +480,14 @@ fun FullScreenLyricLineView(
                 style = MaterialTheme.typography.labelSmall,
                 color = speakerColor,
                 fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(bottom = 4.dp)
+                textAlign = if (centered) TextAlign.Center else TextAlign.Start,
+                modifier = Modifier.padding(bottom = 4.dp).fillMaxWidth()
             )
         }
         
         if (line.words.isNotEmpty()) {
             FlowRow(
-                horizontalArrangement = Arrangement.Start,
+                horizontalArrangement = if (centered) Arrangement.Center else Arrangement.Start,
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -504,6 +508,7 @@ fun FullScreenLyricLineView(
                             letterSpacing = (-1).sp
                         ),
                         color = if (isWordCurrentlyPlaying) artworkColors.secondary else MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
                         modifier = Modifier
                             .graphicsLayer {
                                 scaleX = wordScale
@@ -529,7 +534,7 @@ fun FullScreenLyricLineView(
                     letterSpacing = (-1).sp
                 ),
                 color = if (isActive) artworkColors.secondary else MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Start,
+                textAlign = if (centered) TextAlign.Center else TextAlign.Start,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(

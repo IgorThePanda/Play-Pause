@@ -12,9 +12,10 @@ import androidx.room.RoomDatabase
         SongEntity::class,
         AlbumEntity::class,
         ArtistEntity::class,
-        PlayEvent::class
+        PlayEvent::class,
+        PinnedItemEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

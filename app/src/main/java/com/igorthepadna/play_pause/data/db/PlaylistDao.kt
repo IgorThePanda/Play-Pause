@@ -23,6 +23,18 @@ interface PlaylistDao {
     @Query("DELETE FROM cached_songs")
     suspend fun clearSongs()
 
+    @Transaction
+    suspend fun deleteSongById(songId: Long) {
+        deleteSongFromCache(songId)
+        deleteSongFromPlaylists(songId)
+    }
+
+    @Query("DELETE FROM cached_songs WHERE id = :songId")
+    suspend fun deleteSongFromCache(songId: Long)
+
+    @Query("DELETE FROM playlist_songs WHERE songId = :songId")
+    suspend fun deleteSongFromPlaylists(songId: Long)
+
     @Query("SELECT * FROM cached_albums")
     suspend fun getAllCachedAlbums(): List<AlbumEntity>
 
@@ -97,7 +109,16 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists WHERE id = :playlistId")
     fun getPlaylistWithSongs(playlistId: String): Flow<PlaylistWithSongs?>
 
-    @Transaction
-    @Query("SELECT * FROM playlists WHERE id = :playlistId")
+    @androidx.room.Transaction
+    @androidx.room.Query("SELECT * FROM playlists WHERE id = :playlistId")
     suspend fun getPlaylistWithSongsSync(playlistId: String): PlaylistWithSongs?
+
+    @androidx.room.Query("SELECT * FROM pinned_items ORDER BY addedAt DESC")
+    fun getAllPinnedItems(): kotlinx.coroutines.flow.Flow<List<PinnedItemEntity>>
+
+    @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun insertPinnedItem(item: PinnedItemEntity)
+
+    @androidx.room.Query("DELETE FROM pinned_items WHERE type = :type AND mediaId = :mediaId")
+    suspend fun deletePinnedItem(type: String, mediaId: String)
 }

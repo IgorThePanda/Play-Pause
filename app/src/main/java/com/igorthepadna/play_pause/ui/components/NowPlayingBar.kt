@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -46,6 +47,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.LibraryFilter
+import com.igorthepadna.play_pause.data.HubFilter
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.MusicRepository
@@ -256,6 +258,28 @@ fun NowPlayingBar(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.fillMaxHeight().padding(horizontal = 4.dp)
                                 ) {
+                                    val isHubActive by viewModel?.isHomeHubActive?.collectAsStateWithLifecycle(false) ?: remember { mutableStateOf(false) }
+                                    
+                                    IconButton(
+                                        onClick = { 
+                                            viewModel?.setHomeHubActive(!isHubActive)
+                                        }, 
+                                        modifier = Modifier.size(42.dp)
+                                    ) {
+                                        Icon(
+                                            if (isHubActive) Icons.Rounded.Dashboard else Icons.Rounded.DashboardCustomize, 
+                                            contentDescription = "Home Hub", 
+                                            modifier = Modifier.size(22.dp),
+                                            tint = if (isHubActive) (if (hasMedia) artworkColors.secondary else MaterialTheme.colorScheme.primary) else LocalContentColor.current
+                                        )
+                                    }
+
+                                    VerticalDivider(
+                                        modifier = Modifier.height(24.dp).padding(horizontal = 2.dp), 
+                                        thickness = 1.dp, 
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    )
+
                                     IconButton(onClick = { searchExpanded = true }, modifier = Modifier.size(42.dp)) {
                                         Icon(Icons.Rounded.Search, contentDescription = "Search", modifier = Modifier.size(22.dp))
                                     }
@@ -266,99 +290,181 @@ fun NowPlayingBar(
                                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                                     )
 
-                                    HorizontalPager(
-                                        state = pagerState,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxHeight(),
-                                        contentPadding = PaddingValues(horizontal = 70.dp),
-                                        pageSpacing = 0.dp,
-                                        key = { filters[it].name },
-                                        userScrollEnabled = !isQuickNavActive,
-                                        beyondViewportPageCount = 1
-                                    ) { page ->
-                                        val filter = filters[page]
-                                        val isSelected by remember { derivedStateOf { pagerState.currentPage == page } }
-                                        val activeColor = if (hasMedia) artworkColors.secondary else MaterialTheme.colorScheme.primary
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        val hubFilters by viewModel?.hubOrder?.collectAsStateWithLifecycle(com.igorthepadna.play_pause.data.HubFilter.entries) ?: remember { mutableStateOf(com.igorthepadna.play_pause.data.HubFilter.entries) }
+                                        val currentHubFilter by viewModel?.currentHubFilter?.collectAsStateWithLifecycle(HubFilter.HOME) ?: remember { mutableStateOf(HubFilter.HOME) }
+                                        val hubPagerState = rememberPagerState(initialPage = hubFilters.indexOf(currentHubFilter).coerceAtLeast(0)) { hubFilters.size }
 
-                                        Box(
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .graphicsLayer {
-                                                        alpha = if (isSelected) 1f else 0.5f
-                                                        val scale = if (isSelected) 1f else 0.9f
-                                                        scaleX = scale
-                                                        scaleY = scale
-                                                    }
-                                                    .clip(CircleShape)
-                                                    .pointerInput(page) {
-                                                        detectTapGestures(
-                                                            onTap = { scope.launch { pagerState.animateScrollToPage(page) } },
-                                                            onDoubleTap = { onSortClick() }
-                                                        )
-                                                    }
-                                                    .pointerInput(page, isSelected) {
-                                                        if (isSelected) {
-                                                            detectDragGesturesAfterLongPress(
-                                                                onDragStart = {
-                                                                    isQuickNavActive = true
-                                                                    quickNavDragY = 0f
-                                                                    quickNavSelectedIndex = filters.size - 1
-                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                },
-                                                                onDragEnd = {
-                                                                    if (isQuickNavActive) {
-                                                                        if (quickNavSelectedIndex in filters.indices) {
-                                                                            onFilterSelected(filters[quickNavSelectedIndex])
-                                                                        }
-                                                                        isQuickNavActive = false
-                                                                    }
-                                                                },
-                                                                onDragCancel = { isQuickNavActive = false },
-                                                                onDrag = { change, dragAmount ->
-                                                                    change.consume()
-                                                                    quickNavDragY += dragAmount.y
-                                                                    val itemHeight = 56.dp.toPx()
-                                                                    val dragDist = (-quickNavDragY).coerceAtLeast(0f)
-                                                                    val offset = (dragDist / itemHeight).toInt()
-                                                                    val nextIdx = (filters.size - 1 - offset).coerceIn(0, filters.size - 1)
-                                                                    if (nextIdx != quickNavSelectedIndex) {
-                                                                        quickNavSelectedIndex = nextIdx
-                                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                    }
+                                        LaunchedEffect(currentHubFilter, hubFilters) {
+                                            val target = hubFilters.indexOf(currentHubFilter)
+                                            if (target != -1 && hubPagerState.currentPage != target) hubPagerState.animateScrollToPage(target)
+                                        }
+
+                                        LaunchedEffect(hubPagerState.settledPage, hubFilters) {
+                                            val f = hubFilters.getOrNull(hubPagerState.settledPage)
+                                            if (f != null && f != currentHubFilter) viewModel?.setCurrentHubFilter(f)
+                                        }
+
+                                        AnimatedContent(
+                                            targetState = isHubActive,
+                                            transitionSpec = {
+                                                (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut())
+                                            },
+                                            label = "hub_label_transition"
+                                        ) { active ->
+                                            if (active) {
+                                                HorizontalPager(
+                                                    state = hubPagerState,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentPadding = PaddingValues(horizontal = 70.dp),
+                                                    pageSpacing = 0.dp,
+                                                    key = { hubFilters[it].name },
+                                                    beyondViewportPageCount = 1
+                                                ) { page ->
+                                                    val filter = hubFilters[page]
+                                                    val isSelected by remember { derivedStateOf { hubPagerState.currentPage == page } }
+                                                    val activeColor = if (hasMedia) artworkColors.secondary else MaterialTheme.colorScheme.primary
+
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .clickable(
+                                                                interactionSource = remember { MutableInteractionSource() },
+                                                                indication = null
+                                                            ) {
+                                                                scope.launch { hubPagerState.animateScrollToPage(page) }
+                                                            },
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .graphicsLayer {
+                                                                    alpha = if (isSelected) 1f else 0.5f
+                                                                    val scale = if (isSelected) 1f else 0.9f
+                                                                    scaleX = scale
+                                                                    scaleY = scale
                                                                 }
+                                                                .clip(CircleShape)
+                                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.Center
+                                                        ) {
+                                                            Icon(
+                                                                filter.icon, 
+                                                                null, 
+                                                                modifier = Modifier.size(20.dp),
+                                                                tint = if (isSelected) activeColor else MaterialTheme.colorScheme.onSurfaceVariant
                                                             )
-                                                        } else {
-                                                            detectTapGestures(onLongPress = { onSortClick() })
+                                                            AnimatedVisibility(visible = isSelected) {
+                                                                Row {
+                                                                    Spacer(Modifier.width(6.dp))
+                                                                    Text(filter.label, style = MaterialTheme.typography.labelMedium, color = activeColor)
+                                                                }
+                                                            }
                                                         }
                                                     }
-                                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.Center
-                                            ) {
-                                                Icon(
-                                                    filter.icon, 
-                                                    contentDescription = filter.label, 
-                                                    modifier = Modifier.size(20.dp),
-                                                    tint = if (isSelected) activeColor else MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                                
-                                                AnimatedVisibility(
-                                                    visible = isSelected,
-                                                    enter = expandHorizontally() + fadeIn(),
-                                                    exit = shrinkHorizontally() + fadeOut()
-                                                ) {
-                                                    Row {
-                                                        Spacer(Modifier.width(6.dp))
-                                                        Text(
-                                                            filter.label,
-                                                            style = MaterialTheme.typography.labelMedium,
-                                                            color = activeColor,
-                                                            maxLines = 1
-                                                        )
+                                                }
+                                            } else {
+                                                HorizontalPager(
+                                                    state = pagerState,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentPadding = PaddingValues(horizontal = 70.dp),
+                                                    pageSpacing = 0.dp,
+                                                    key = { filters[it].name },
+                                                    userScrollEnabled = !isQuickNavActive,
+                                                    beyondViewportPageCount = 1
+                                                ) { page ->
+                                                    val filter = filters[page]
+                                                    val isSelected by remember { derivedStateOf { pagerState.currentPage == page } }
+                                                    val activeColor = if (hasMedia) artworkColors.secondary else MaterialTheme.colorScheme.primary
+
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .clickable(
+                                                                interactionSource = remember { MutableInteractionSource() },
+                                                                indication = null
+                                                            ) {
+                                                                scope.launch { pagerState.animateScrollToPage(page) }
+                                                            },
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .graphicsLayer {
+                                                                    alpha = if (isSelected) 1f else 0.5f
+                                                                    val scale = if (isSelected) 1f else 0.9f
+                                                                    scaleX = scale
+                                                                    scaleY = scale
+                                                                }
+                                                                .clip(CircleShape)
+                                                                .pointerInput(page) {
+                                                                    detectTapGestures(
+                                                                        onDoubleTap = { onSortClick() }
+                                                                    )
+                                                                }
+                                                                .pointerInput(page, isSelected) {
+                                                                    if (isSelected) {
+                                                                        detectDragGesturesAfterLongPress(
+                                                                            onDragStart = {
+                                                                                isQuickNavActive = true
+                                                                                quickNavDragY = 0f
+                                                                                quickNavSelectedIndex = filters.size - 1
+                                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                            },
+                                                                            onDragEnd = {
+                                                                                if (isQuickNavActive) {
+                                                                                    if (quickNavSelectedIndex in filters.indices) {
+                                                                                        onFilterSelected(filters[quickNavSelectedIndex])
+                                                                                    }
+                                                                                    isQuickNavActive = false
+                                                                                }
+                                                                            },
+                                                                            onDragCancel = { isQuickNavActive = false },
+                                                                            onDrag = { change, dragAmount ->
+                                                                                change.consume()
+                                                                                quickNavDragY += dragAmount.y
+                                                                                val itemHeight = 56.dp.toPx()
+                                                                                val dragDist = (-quickNavDragY).coerceAtLeast(0f)
+                                                                                val offset = (dragDist / itemHeight).toInt()
+                                                                                val nextIdx = (filters.size - 1 - offset).coerceIn(0, filters.size - 1)
+                                                                                if (nextIdx != quickNavSelectedIndex) {
+                                                                                    quickNavSelectedIndex = nextIdx
+                                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                                }
+                                                                            }
+                                                                        )
+                                                                    } else {
+                                                                        detectTapGestures(onLongPress = { onSortClick() })
+                                                                    }
+                                                                }
+                                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.Center
+                                                        ) {
+                                                            Icon(
+                                                                filter.icon, 
+                                                                contentDescription = filter.label, 
+                                                                modifier = Modifier.size(20.dp),
+                                                                tint = if (isSelected) activeColor else MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                            
+                                                            AnimatedVisibility(
+                                                                visible = isSelected,
+                                                                enter = expandHorizontally() + fadeIn(),
+                                                                exit = shrinkHorizontally() + fadeOut()
+                                                            ) {
+                                                                Row {
+                                                                    Spacer(Modifier.width(6.dp))
+                                                                    Text(
+                                                                        filter.label,
+                                                                        style = MaterialTheme.typography.labelMedium,
+                                                                        color = activeColor,
+                                                                        maxLines = 1
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -506,13 +612,7 @@ private fun PlaybackSection(
                         onDragEnd = {
                             onIsSkipDraggingChange(false)
                             when (skipDragAction) {
-                                DragAction.PREVIOUS -> {
-                                    if (player?.hasPreviousMediaItem() == true) {
-                                        player.seekToPreviousMediaItem()
-                                    } else {
-                                        player?.seekTo(0)
-                                    }
-                                }
+                                DragAction.PREVIOUS -> viewModel?.skipPrevious(player)
                                 DragAction.NEXT -> player?.seekToNext()
                                 DragAction.NONE -> player?.seekTo(currentPosition)
                             }

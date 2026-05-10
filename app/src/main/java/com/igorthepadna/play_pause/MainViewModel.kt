@@ -10,12 +10,16 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.igorthepadna.play_pause.data.Album
 import com.igorthepadna.play_pause.data.Artist
+import com.igorthepadna.play_pause.data.GridSizeMode
 import com.igorthepadna.play_pause.data.LibraryFilter
 import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.data.Playlist
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.data.SortOrder
 import com.igorthepadna.play_pause.data.SortType
+import com.igorthepadna.play_pause.data.PinnedItem
+import com.igorthepadna.play_pause.data.PinnedType
+import com.igorthepadna.play_pause.data.db.PinnedItemEntity
 import android.provider.MediaStore
 import android.database.ContentObserver
 import android.os.Handler
@@ -36,6 +40,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import java.io.InputStream
 import java.io.OutputStream
+import android.app.PendingIntent
+import android.app.RecoverableSecurityException
+import android.os.Build
+import androidx.activity.result.IntentSenderRequest
 
 import com.igorthepadna.play_pause.ui.components.CategoryViewMode
 
@@ -55,7 +63,7 @@ data class TabSortSettings(
 
 data class ViewModeSettings(
     val viewMode: CategoryViewMode = CategoryViewMode.DETAILED,
-    val columns: Int = 2
+    val gridSizeMode: GridSizeMode = GridSizeMode.MEDIUM
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -66,7 +74,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val songs = _songs.asStateFlow()
 
     private val _allAlbums = MutableStateFlow<List<Album>>(emptyList())
+    val allAlbums = _allAlbums.asStateFlow()
+    
     private val _allArtists = MutableStateFlow<List<Artist>>(emptyList())
+    val allArtists = _allArtists.asStateFlow()
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing = _isRefreshing.asStateFlow()
@@ -123,6 +134,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _navBarAtTop = MutableStateFlow(prefs.getBoolean("navbar_at_top", false))
     val navBarAtTop = _navBarAtTop.asStateFlow()
 
+    enum class PlayNextBehavior { TOP, BOTTOM }
+
+    private val _playNextBehavior = MutableStateFlow(
+        runCatching { PlayNextBehavior.valueOf(prefs.getString("play_next_behavior", PlayNextBehavior.TOP.name)!!) }.getOrDefault(PlayNextBehavior.TOP)
+    )
+    val playNextBehavior = _playNextBehavior.asStateFlow()
+
     // General Settings
     private val _gaplessPlayback = MutableStateFlow(prefs.getBoolean("gapless_playback", true))
     val gaplessPlayback = _gaplessPlayback.asStateFlow()
@@ -142,6 +160,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putString("navbar_order", order.joinToString(",") { it.name }).apply()
     }
 
+    private val _hubOrder = MutableStateFlow(
+        prefs.getString("hub_order", null)?.split(",")?.mapNotNull { name ->
+            runCatching { com.igorthepadna.play_pause.data.HubFilter.valueOf(name) }.getOrNull()
+        } ?: com.igorthepadna.play_pause.data.HubFilter.entries
+    )
+    val hubOrder = _hubOrder.asStateFlow()
+
+    fun setHubOrder(order: List<com.igorthepadna.play_pause.data.HubFilter>) {
+        _hubOrder.value = order
+        prefs.edit().putString("hub_order", order.joinToString(",") { it.name }).apply()
+    }
+
     // Lyric Settings
     private val _lyricFontSize = MutableStateFlow(prefs.getFloat("lyric_font_size", 28f))
     val lyricFontSize = _lyricFontSize.asStateFlow()
@@ -158,6 +188,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showLyricsProgress = MutableStateFlow(prefs.getBoolean("show_lyrics_progress", true))
     val showLyricsProgress = _showLyricsProgress.asStateFlow()
 
+    private val _lyricAlignmentCenter = MutableStateFlow(prefs.getBoolean("lyric_alignment_center", false))
+    val lyricAlignmentCenter = _lyricAlignmentCenter.asStateFlow()
+
     private val _showTimerOnPlayButton = MutableStateFlow(prefs.getBoolean("show_timer_on_play_button", false))
     val showTimerOnPlayButton = _showTimerOnPlayButton.asStateFlow()
 
@@ -167,6 +200,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _repeatByDefault = MutableStateFlow(prefs.getBoolean("repeat_by_default", false))
     val repeatByDefault = _repeatByDefault.asStateFlow()
+
+    private val _resetOnPrevious = MutableStateFlow(prefs.getBoolean("reset_on_previous", true))
+    val resetOnPrevious = _resetOnPrevious.asStateFlow()
 
     private val _lyricsByDefault = MutableStateFlow(prefs.getBoolean("lyrics_by_default", false))
     val lyricsByDefault = _lyricsByDefault.asStateFlow()
@@ -197,6 +233,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isFullScreenLyricsVisible = MutableStateFlow(false)
     val isFullScreenLyricsVisible = _isFullScreenLyricsVisible.asStateFlow()
 
+    private val _isHomeHubActive = MutableStateFlow(false)
+    val isHomeHubActive = _isHomeHubActive.asStateFlow()
+
+    private val _currentHubFilter = MutableStateFlow(com.igorthepadna.play_pause.data.HubFilter.HOME)
+    val currentHubFilter = _currentHubFilter.asStateFlow()
+
+    fun setHomeHubActive(active: Boolean) {
+        _isHomeHubActive.value = active
+    }
+
+    fun setCurrentHubFilter(filter: com.igorthepadna.play_pause.data.HubFilter) {
+        _currentHubFilter.value = filter
+    }
+
+    val pinnedItems: StateFlow<List<PinnedItem>> = repository.getAllPinnedItems()
+        .map { entities ->
+            entities.map { entity ->
+                PinnedItem(
+                    id = entity.id,
+                    type = PinnedType.valueOf(entity.type),
+                    mediaId = entity.mediaId,
+                    addedAt = entity.addedAt
+                )
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun togglePin(type: PinnedType, id: String) {
+        viewModelScope.launch {
+            val isPinned = pinnedItems.value.any { it.type == type && it.mediaId == id }
+            if (isPinned) {
+                repository.deletePinnedItem(type.name, id)
+            } else {
+                repository.insertPinnedItem(
+                    PinnedItemEntity(type = type.name, mediaId = id)
+                )
+            }
+        }
+    }
+
+    val weeklyTopArtist = repository.getTopArtists(1, System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L)
+        .map { it.firstOrNull() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val weeklyTopTrack = repository.getTopTracks(1, System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L)
+        .map { it.firstOrNull() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val recentlyAdded = songs.map { it.sortedByDescending { s -> s.dateAdded }.take(10) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _isCompactLyricsMode = MutableStateFlow(false)
     val isCompactLyricsMode = _isCompactLyricsMode.asStateFlow()
 
@@ -224,6 +311,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lyricPreviewSongId = MutableStateFlow<Long?>(null)
     val lyricPreviewSongId = _lyricPreviewSongId.asStateFlow()
 
+    private val _deletePendingRequest = MutableStateFlow<IntentSenderRequest?>(null)
+    val deletePendingRequest = _deletePendingRequest.asStateFlow()
+
+    fun clearDeletePendingRequest() {
+        _deletePendingRequest.value = null
+    }
+
     // Per-tab Sort Settings
     private val _tabSortSettings = MutableStateFlow<Map<LibraryFilter, TabSortSettings>>(
         LibraryFilter.entries.associateWith { filter ->
@@ -247,7 +341,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val parts = value.split("|")
             ViewModeSettings(
                 viewMode = runCatching { CategoryViewMode.valueOf(parts[0]) }.getOrDefault(CategoryViewMode.DETAILED),
-                columns = parts.getOrNull(1)?.toIntOrNull() ?: 2
+                gridSizeMode = runCatching { 
+                    val p = parts.getOrNull(1)
+                    if (p?.toIntOrNull() != null) {
+                        when(p.toInt()) {
+                            1 -> GridSizeMode.LARGE
+                            2 -> GridSizeMode.MEDIUM
+                            3 -> GridSizeMode.SMALL
+                            else -> GridSizeMode.AUTO
+                        }
+                    } else {
+                        GridSizeMode.valueOf(p ?: "MEDIUM")
+                    }
+                }.getOrDefault(GridSizeMode.MEDIUM)
             )
         }.mapKeys { it.key.removePrefix("view_mode_") }
     )
@@ -478,14 +584,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (id == null) {
             clearSelections()
         } else {
+            _isHomeHubActive.value = false
             _selectionStack.value = _selectionStack.value + Selection.Playlist(id)
             saveSelectionStack()
         }
     }
 
     fun setShowStats() {
-        _selectionStack.value = _selectionStack.value + Selection.Stats
-        saveSelectionStack()
+        setHomeHubActive(true)
+        setCurrentHubFilter(com.igorthepadna.play_pause.data.HubFilter.STATS)
     }
 
     fun setSelectedPlaylistInfoId(id: String?) {
@@ -535,6 +642,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("navbar_at_top", top).apply()
     }
 
+    fun setPlayNextBehavior(behavior: PlayNextBehavior) {
+        _playNextBehavior.value = behavior
+        prefs.edit().putString("play_next_behavior", behavior.name).apply()
+    }
+
     fun setGaplessPlayback(enabled: Boolean) {
         _gaplessPlayback.value = enabled
         prefs.edit().putBoolean("gapless_playback", enabled).apply()
@@ -568,6 +680,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setShowLyricsProgress(show: Boolean) {
         _showLyricsProgress.value = show
         prefs.edit().putBoolean("show_lyrics_progress", show).apply()
+    }
+
+    fun setLyricAlignmentCenter(center: Boolean) {
+        _lyricAlignmentCenter.value = center
+        prefs.edit().putBoolean("lyric_alignment_center", center).apply()
+    }
+
+    fun setResetOnPrevious(enabled: Boolean) {
+        _resetOnPrevious.value = enabled
+        prefs.edit().putBoolean("reset_on_previous", enabled).apply()
+    }
+
+    fun skipPrevious(player: Player?) {
+        val p = player ?: return
+        if (_resetOnPrevious.value && p.currentPosition > 3000) {
+            p.seekTo(0)
+        } else {
+            if (p.hasPreviousMediaItem()) {
+                p.seekToPreviousMediaItem()
+            } else {
+                p.seekTo(0)
+            }
+        }
     }
 
     fun setShowTimerOnPlayButton(show: Boolean) {
@@ -645,7 +780,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _viewModeSettings.value = _viewModeSettings.value.toMutableMap().apply {
             put(key, settings)
         }
-        prefs.edit().putString("view_mode_$key", "${settings.viewMode.name}|${settings.columns}").apply()
+        prefs.edit().putString("view_mode_$key", "${settings.viewMode.name}|${settings.gridSizeMode.name}").apply()
     }
 
     fun loadSongs(refresh: Boolean = false, fromMediaStore: Boolean = false) {
@@ -793,8 +928,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addPlayNext(song: Song) {
         val player = _player.value ?: return
-        val index = if (player.mediaItemCount == 0) 0 else player.currentMediaItemIndex + 1
-        player.addMediaItem(index, song.toMediaItem(isPlayNext = true))
+        val currentIndex = if (player.mediaItemCount == 0) -1 else player.currentMediaItemIndex
+        val totalCount = player.mediaItemCount
+        
+        var insertIndex = currentIndex + 1
+        
+        if (_playNextBehavior.value == PlayNextBehavior.BOTTOM && currentIndex != -1) {
+            // Find the last item that is marked as "play_next"
+            for (i in (currentIndex + 1) until totalCount) {
+                val item = player.getMediaItemAt(i)
+                if (item.mediaMetadata.extras?.getBoolean("is_play_next") == true) {
+                    insertIndex = i + 1
+                } else {
+                    break
+                }
+            }
+        }
+        
+        player.addMediaItem(insertIndex, song.toMediaItem(isPlayNext = true))
     }
 
     fun addToPlaylist(playlistId: String, songId: Long) {
@@ -831,6 +982,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun createPlaylist(name: String) {
         viewModelScope.launch {
             repository.createPlaylist(name)
+        }
+    }
+
+    fun deleteSong(song: Song, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            // Optimistically remove from UI
+            _songs.value = _songs.value.filter { it.id != song.id }
+            
+            // Stop/Skip if current song is being deleted
+            val p = _player.value
+            if (p?.currentMediaItem?.mediaId == song.id.toString()) {
+                if (p.hasNextMediaItem()) {
+                    p.seekToNext()
+                } else {
+                    p.stop()
+                }
+            }
+
+            val result = repository.deleteSong(song)
+            if (result.isSuccess) {
+                loadSongs(fromMediaStore = true)
+                onResult(true)
+            } else {
+                val exception = result.exceptionOrNull()
+                
+                // If failed for a non-security reason, we might need to restore it
+                val isSecurityException = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && exception is RecoverableSecurityException) || 
+                                          (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && exception is SecurityException)
+                
+                if (!isSecurityException) {
+                    loadSongs() // Restore list
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && exception is RecoverableSecurityException) {
+                    _deletePendingRequest.value = IntentSenderRequest.Builder(exception.userAction.actionIntent.intentSender).build()
+                    // Don't call onResult(false) as we're starting a permission request
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && exception is SecurityException) {
+                    val pendingIntent = MediaStore.createDeleteRequest(getApplication<Application>().contentResolver, listOf(song.uri))
+                    _deletePendingRequest.value = IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                    // Don't call onResult(false) as we're starting a permission request
+                } else {
+                    onResult(false)
+                }
+            }
         }
     }
 

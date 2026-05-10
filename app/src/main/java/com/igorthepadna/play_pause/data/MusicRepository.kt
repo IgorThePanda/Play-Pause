@@ -114,10 +114,11 @@ class MusicRepository(private val context: Context) {
                 if (track >= 1000) { disc = track / 1000; track %= 1000 }
                 
                 val (cleanTitle, cleanArtist) = processSongMetadata(rawTitle, rawArtist)
+                val songUri = ContentUris.withAppendedId(collection, id)
 
                 songList.add(Song(
-                    id = id, title = cleanTitle, artist = cleanArtist, album = cursor.getString(albumCol) ?: "Unknown Album",
-                    duration = cursor.getLong(durCol), uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id),
+                    id = id, title = cleanTitle, artist = cleanArtist, album = cleanTitle(cursor.getString(albumCol) ?: "Unknown Album"),
+                    duration = cursor.getLong(durCol), uri = songUri,
                     albumArtUri = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), cursor.getLong(albIdCol)),
                     path = cursor.getString(dataCol) ?: "", size = cursor.getLong(sizeCol), format = cursor.getString(mimeCol) ?: "",
                     dateAdded = cursor.getLong(dateCol), trackNumber = track, discNumber = if (disc == 0) 1 else disc,
@@ -133,8 +134,9 @@ class MusicRepository(private val context: Context) {
     private fun Song.toEntity() = SongEntity(id, title, artist, album, duration, uri.toString(), albumArtUri?.toString(), path, size, format, dateAdded, trackNumber, discNumber, albumArtist, albumId, year)
     private fun SongEntity.toDomain(): Song {
         val (cleanTitle, cleanArtist) = processSongMetadata(title, artist)
+        val cleanAlbum = cleanTitle(album)
         return Song(
-            id = id, title = cleanTitle, artist = cleanArtist, album = album, duration = duration,
+            id = id, title = cleanTitle, artist = cleanArtist, album = cleanAlbum, duration = duration,
             uri = Uri.parse(uri), albumArtUri = albumArtUri?.let { Uri.parse(it) }, path = path,
             size = size, format = format, dateAdded = dateAdded, 
             trackNumber = if (trackNumber >= 1000) trackNumber % 1000 else trackNumber, 
@@ -143,7 +145,7 @@ class MusicRepository(private val context: Context) {
         )
     }
     private fun Album.toEntity() = AlbumEntity(id, title, artist, artworkUri?.toString(), year, hasFolderCover)
-    private fun AlbumEntity.toDomain(songs: List<Song>) = Album(id, title, artist, artworkUri?.let { Uri.parse(it) }, songs.filter { it.albumId == id }.sortedWith(compareBy({ it.discNumber }, { it.trackNumber })), year, songs.filter { it.albumId == id }.mapNotNull { it.albumArtUri }.distinct(), hasFolderCover)
+    private fun AlbumEntity.toDomain(songs: List<Song>) = Album(id, cleanTitle(title), artist, artworkUri?.let { Uri.parse(it) }, songs.filter { it.albumId == id }.sortedWith(compareBy({ it.discNumber }, { it.trackNumber })), year, songs.filter { it.albumId == id }.mapNotNull { it.albumArtUri }.distinct(), hasFolderCover)
     private fun Artist.toEntity() = ArtistEntity(name, albumCount, trackCount, thumbnailUri?.toString())
     private fun ArtistEntity.toDomain(songs: List<Song>, albums: List<Album>): Artist {
         val artistSongs = songs.filter { splitArtists(it.artist).firstOrNull() == name }
@@ -168,7 +170,7 @@ class MusicRepository(private val context: Context) {
                     outer@for (n in names) for (e in exts) fileMap["$n.$e"]?.let { artUri = it.toUri(); hasFolder = true; break@outer }
                 }
             }
-            Album(albumId, first.album, first.albumArtist ?: first.artist, artUri ?: first.albumArtUri, albumSongs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber })), first.year, albumSongs.mapNotNull { it.albumArtUri }.distinct(), hasFolder)
+            Album(albumId, cleanTitle(first.album), first.albumArtist ?: first.artist, artUri ?: first.albumArtUri, albumSongs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber })), first.year, albumSongs.mapNotNull { it.albumArtUri }.distinct(), hasFolder)
         }
         playlistDao.clearAlbums(); playlistDao.insertAlbums(albums.map { it.toEntity() })
         cachedAlbums = albums; albums
@@ -219,9 +221,8 @@ class MusicRepository(private val context: Context) {
                     regex.find(processed)?.let { replacements.add(token to it.value); processed = regex.replace(processed, token) }
                 }
             }
-            val delimiters = listOf(" & ", " feat. ", " feat ", " ft. ", " ft ", " / ", " with ", " Featuring ", ", ")
-            var parts = listOf(processed)
-            delimiters.forEach { d -> parts = parts.flatMap { it.split(d) } }
+            val delimiterRegex = Regex("""\s+(?:&|feat\.?|ft\.?|featuring|with|/)\s+|,\s*""", RegexOption.IGNORE_CASE)
+            val parts = processed.split(delimiterRegex)
             val finalResult = parts.map { part ->
                 var restored = part.trim()
                 replacements.forEach { (token, original) -> restored = restored.replace(token, original) }
@@ -291,6 +292,43 @@ class MusicRepository(private val context: Context) {
         if (files.isNotEmpty()) MediaScannerConnection.scanFile(context, files.toTypedArray(), null, null)
     }
 
+    suspend fun deleteSong(song: Song): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val deleted = context.contentResolver.delete(song.uri, null, null)
+                if (deleted > 0) {
+                    cachedSongs = cachedSongs?.filter { it.id != song.id }
+                    // Also remove from Room DB immediately
+                    playlistDao.deleteSongById(song.id)
+                    Result.success(Unit)
+                } else {
+                    val file = java.io.File(song.path)
+                    if (file.exists()) {
+                        if (file.delete()) {
+                            cachedSongs = cachedSongs?.filter { it.id != song.id }
+                            playlistDao.deleteSongById(song.id)
+                            // Notify MediaScanner
+                            android.media.MediaScannerConnection.scanFile(context, arrayOf(song.path), null, null)
+                            Result.success(Unit)
+                        } else {
+                            // On Android 10+, this is likely a permission issue
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                Result.failure(SecurityException("Permission denied or file protected"))
+                            } else {
+                                Result.failure(Exception("Could not delete file"))
+                            }
+                        }
+                    } else {
+                        cachedSongs = cachedSongs?.filter { it.id != song.id }
+                        Result.success(Unit)
+                    }
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
     fun getAllPlaylists(): Flow<List<Playlist>> = playlistDao.getAllPlaylistsWithSongs().map { entities -> entities.map { item -> Playlist(item.playlist.id, item.playlist.name, item.songs.map { it.songId }, item.playlist.isFavorite, item.playlist.coverUri?.let { Uri.parse(it) }) } }
     suspend fun createPlaylist(name: String, id: String = UUID.randomUUID().toString(), isFavorite: Boolean = false) = playlistDao.insertPlaylist(PlaylistEntity(id, name, isFavorite))
     suspend fun deletePlaylist(playlistId: String) = playlistDao.getPlaylistById(playlistId)?.let { playlistDao.deletePlaylist(it) }
@@ -301,6 +339,13 @@ class MusicRepository(private val context: Context) {
     fun getPlaylistWithSongs(playlistId: String): Flow<Playlist?> = playlistDao.getPlaylistWithSongs(playlistId).map { p -> p?.let { Playlist(it.playlist.id, it.playlist.name, it.songs.map { it.songId }, it.playlist.isFavorite, it.playlist.coverUri?.let { u -> Uri.parse(u) }) } }
     suspend fun setPlaylistCover(playlistId: String, uri: Uri?) = playlistDao.updatePlaylistCover(playlistId, uri?.toString())
     suspend fun updatePlaylistName(playlistId: String, name: String) = playlistDao.updatePlaylistName(playlistId, name)
+
+    fun getAllPinnedItems() = playlistDao.getAllPinnedItems()
+    suspend fun insertPinnedItem(item: com.igorthepadna.play_pause.data.db.PinnedItemEntity) = playlistDao.insertPinnedItem(item)
+    suspend fun deletePinnedItem(type: String, mediaId: String) = playlistDao.deletePinnedItem(type, mediaId)
+
+    fun getTopArtists(limit: Int, since: Long) = statsDao.getTopArtists(limit, since)
+    fun getTopTracks(limit: Int, since: Long) = statsDao.getTopTracks(limit, since)
 
     suspend fun exportPlaylists(outputStream: OutputStream) {
         val playlists = playlistDao.getAllPlaylistsSync()

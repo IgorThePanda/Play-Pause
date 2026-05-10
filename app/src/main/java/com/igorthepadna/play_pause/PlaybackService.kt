@@ -12,12 +12,87 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import java.util.Random
 
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
+
+    companion object {
+        private const val CUSTOM_COMMAND_TOGGLE_SHUFFLE = "TOGGLE_SHUFFLE"
+        private const val CUSTOM_COMMAND_TOGGLE_REPEAT = "TOGGLE_REPEAT"
+    }
+
+    private val callback = object : MediaSession.Callback {
+        @OptIn(UnstableApi::class)
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+            val availableSessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+            availableSessionCommands.add(SessionCommand(CUSTOM_COMMAND_TOGGLE_SHUFFLE, Bundle.EMPTY))
+            availableSessionCommands.add(SessionCommand(CUSTOM_COMMAND_TOGGLE_REPEAT, Bundle.EMPTY))
+
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(availableSessionCommands.build())
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): ListenableFuture<SessionResult> {
+            when (customCommand.customAction) {
+                CUSTOM_COMMAND_TOGGLE_SHUFFLE -> {
+                    session.player.shuffleModeEnabled = !session.player.shuffleModeEnabled
+                    updateCustomLayout()
+                }
+                CUSTOM_COMMAND_TOGGLE_REPEAT -> {
+                    session.player.repeatMode = when (session.player.repeatMode) {
+                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                        Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_OFF
+                        else -> Player.REPEAT_MODE_OFF
+                    }
+                    updateCustomLayout()
+                }
+            }
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun updateCustomLayout() {
+        val player = mediaSession?.player ?: return
+
+        val shuffleButton = CommandButton.Builder()
+            .setSessionCommand(SessionCommand(CUSTOM_COMMAND_TOGGLE_SHUFFLE, Bundle.EMPTY))
+            .setIconResId(if (player.shuffleModeEnabled) R.drawable.ic_shuffle_active else R.drawable.ic_shuffle)
+            .setDisplayName("Shuffle")
+            .build()
+
+        val repeatButton = CommandButton.Builder()
+            .setSessionCommand(SessionCommand(CUSTOM_COMMAND_TOGGLE_REPEAT, Bundle.EMPTY))
+            .setIconResId(
+                when (player.repeatMode) {
+                    Player.REPEAT_MODE_ONE -> R.drawable.ic_repeat_one_active
+                    Player.REPEAT_MODE_ALL -> R.drawable.ic_repeat_active
+                    else -> R.drawable.ic_repeat
+                }
+            )
+            .setDisplayName("Repeat")
+            .build()
+
+        mediaSession?.setCustomLayout(listOf(shuffleButton, repeatButton))
+    }
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -45,6 +120,11 @@ class PlaybackService : MediaSessionService() {
                 if (enabled) {
                     fixShuffleOrder(player)
                 }
+                updateCustomLayout()
+            }
+
+            override fun onRepeatModeChanged(repeatMode: Int) {
+                updateCustomLayout()
             }
 
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
@@ -69,7 +149,10 @@ class PlaybackService : MediaSessionService() {
         
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(pendingIntent)
+            .setCallback(callback)
             .build()
+            
+        updateCustomLayout()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession

@@ -3,7 +3,9 @@ package com.igorthepadna.play_pause.data
 import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
+import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MusicNote
@@ -82,6 +84,17 @@ data class Playlist(
     val coverUri: Uri? = null
 )
 
+enum class GridSizeMode {
+    SMALL, MEDIUM, LARGE, AUTO;
+    
+    override fun toString(): String = when(this) {
+        SMALL -> "S"
+        MEDIUM -> "M"
+        LARGE -> "L"
+        AUTO -> "A"
+    }
+}
+
 enum class LibraryFilter(val label: String, val icon: ImageVector) {
     ALBUMS("Albums", Icons.Rounded.Album),
     SONGS("Songs", Icons.Rounded.MusicNote),
@@ -91,6 +104,12 @@ enum class LibraryFilter(val label: String, val icon: ImageVector) {
     FILE_SYSTEM("Files", Icons.Rounded.Folder)
 }
 
+enum class HubFilter(val label: String, val icon: ImageVector) {
+    HOME("Home", Icons.Rounded.Dashboard),
+    NEWS("News", Icons.AutoMirrored.Rounded.ShowChart),
+    STATS("Stats", Icons.Rounded.GraphicEq)
+}
+
 enum class SortType {
     TITLE, ARTIST, DURATION, RELEASE_DATE, DATE_ADDED, ALBUM_COUNT, TRACK_COUNT
 }
@@ -98,3 +117,15 @@ enum class SortType {
 enum class SortOrder {
     ASC, DESC
 }
+
+enum class PinnedType {
+    SONG, ALBUM, ARTIST, PLAYLIST
+}
+
+@Immutable
+data class PinnedItem(
+    val id: Int = 0,
+    val type: PinnedType,
+    val mediaId: String,
+    val addedAt: Long = System.currentTimeMillis()
+)

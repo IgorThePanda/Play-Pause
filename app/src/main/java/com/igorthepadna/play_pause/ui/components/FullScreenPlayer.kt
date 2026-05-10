@@ -1083,10 +1083,7 @@ fun FullScreenPlayer(
                 PlayerPlaybackControls(
                     isPlaying = isPlaying,
                     onTogglePlay = { if (isPlaying) player.pause() else player.play() },
-                    onSkipPrevious = { 
-                        if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem()
-                        else player.seekTo(0)
-                    },
+                    onSkipPrevious = { viewModel.skipPrevious(player) },
                     onSkipNext = { player.seekToNext() },
                     artworkColors = artworkColors,
                     onPositioned = { buttonCenter = it }

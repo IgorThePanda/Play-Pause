@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,17 +39,23 @@ import java.util.*
 @Composable
 fun StatsScreen(
     viewModel: MainViewModel,
-    onBack: () -> Unit
+    onBack: (() -> Unit)? = null,
+    contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     var showPlayTimeDetail by remember { mutableStateOf(false) }
 
     if (showPlayTimeDetail) {
-        PlayTimeDetailView(viewModel = viewModel, onBack = { showPlayTimeDetail = false })
+        PlayTimeDetailView(
+            viewModel = viewModel, 
+            onBack = { showPlayTimeDetail = false },
+            contentPadding = contentPadding
+        )
     } else {
         StatsSummaryView(
             viewModel = viewModel,
             onBack = onBack,
-            onPlayTimeClick = { showPlayTimeDetail = true }
+            onPlayTimeClick = { showPlayTimeDetail = true },
+            contentPadding = contentPadding
         )
     }
 }
@@ -57,30 +64,20 @@ fun StatsScreen(
 @Composable
 fun StatsSummaryView(
     viewModel: MainViewModel,
-    onBack: () -> Unit,
-    onPlayTimeClick: () -> Unit
+    onBack: (() -> Unit)? = null,
+    onPlayTimeClick: () -> Unit,
+    contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val totalPlayCount by viewModel.getTotalPlayCount().collectAsState(initial = 0L)
     val topTracks by viewModel.getTopTracks(5).collectAsState(initial = emptyList())
     val topArtists by viewModel.getTopArtists(5).collectAsState(initial = emptyList())
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Statistics", fontWeight = FontWeight.Black) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    val content = @Composable { padding: PaddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             // Play Time Overview Card
@@ -111,17 +108,16 @@ fun StatsSummaryView(
                         topTracks.forEach { track ->
                             val song = viewModel.songs.collectAsState().value.find { it.id == track.songId }
                             if (song != null) {
-                                ListItem(
-                                    headlineContent = { Text(song.title, fontWeight = FontWeight.Bold) },
-                                    supportingContent = { Text(song.artist) },
-                                    trailingContent = { 
-                                        Text(
-                                            "${track.playCount} plays",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.primary
-                                        ) 
-                                    },
-                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                                com.igorthepadna.play_pause.ui.components.UniversalSongItem(
+                                    song = song,
+                                    isPlaying = false,
+                                    onClick = { viewModel.playSongs(listOf(song), 0, null) },
+                                    onDetailsClick = { },
+                                    onSwipePlayNext = { },
+                                    onSwipeAddToPlaylist = { },
+                                    label = song.title,
+                                    secondaryLabel = "${track.playCount} plays",
+                                    containerColor = Color.Transparent
                                 )
                             }
                         }
@@ -147,22 +143,18 @@ fun StatsSummaryView(
                         )
                     } else {
                         topArtists.forEach { artist ->
-                            ListItem(
-                                headlineContent = { 
-                                    ArtistSubtitle(
-                                        artistText = artist.artistName,
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                        mainColor = MaterialTheme.colorScheme.onSurface
-                                    )
-                                },
-                                trailingContent = { 
-                                    Text(
-                                        "${artist.playCount} plays",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.secondary
-                                    ) 
-                                },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            val artistData = viewModel.allArtists.collectAsState().value.find { it.name == artist.artistName }
+                            com.igorthepadna.play_pause.ui.components.UniversalSongItem(
+                                song = com.igorthepadna.play_pause.data.Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
+                                isPlaying = false,
+                                onClick = { viewModel.setSelectedArtistName(artist.artistName) },
+                                onDetailsClick = { },
+                                onSwipePlayNext = { },
+                                onSwipeAddToPlaylist = { },
+                                label = artist.artistName,
+                                secondaryLabel = "${artist.playCount} plays",
+                                artworkUri = artistData?.thumbnailUri,
+                                containerColor = Color.Transparent
                             )
                         }
                     }
@@ -170,12 +162,32 @@ fun StatsSummaryView(
             }
         }
     }
+
+    if (onBack != null) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Statistics", fontWeight = FontWeight.Black) },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
+                        }
+                    }
+                )
+            }
+        ) { padding ->
+            content(padding)
+        }
+    } else {
+        content(PaddingValues(0.dp))
+    }
 }
 
 @Composable
 fun PlayTimeDetailView(
     viewModel: MainViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val dailyStats by viewModel.getDailyPlayCounts(System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)).collectAsState(initial = emptyList())
     
@@ -195,7 +207,9 @@ fun PlayTimeDetailView(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScrollbar() // Note: You might need to import or implement this
+                .verticalScrollbar() 
+                .verticalScroll(rememberScrollState())
+                .padding(contentPadding)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -221,147 +235,128 @@ fun StatsOverviewCard(
     onClick: () -> Unit
 ) {
     Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(32.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+        tonalElevation = 4.dp
     ) {
-        Column(modifier = Modifier.padding(24.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Timeline, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-                Text("Total Listens", style = MaterialTheme.typography.labelLarge)
-            }
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                Icons.Rounded.Timer,
+                null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "Total Plays",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+            )
             Text(
                 text = totalPlayCount.toString(),
-                style = MaterialTheme.typography.displayLarge,
+                style = MaterialTheme.typography.displayMedium,
                 fontWeight = FontWeight.Black,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
+            Spacer(Modifier.height(8.dp))
             Text(
-                "Click for detailed activity insights",
+                text = "View Activity Breakdown",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
             )
         }
     }
 }
 
 @Composable
-fun HeatmapGrid(stats: List<DailyPlayTime>) {
-    val maxCount = stats.maxOfOrNull { it.totalPlayCount } ?: 1
+fun HeatmapGrid(dailyStats: List<DailyPlayTime>) {
+    val maxCount = remember(dailyStats) { dailyStats.maxOfOrNull { it.totalPlayCount } ?: 1 }
     
-    // Create a map for easy lookup
-    val statsMap = stats.associateBy { 
-        val cal = Calendar.getInstance()
-        cal.timeInMillis = it.date
-        cal.get(Calendar.DAY_OF_YEAR)
-    }
+    // Last 30 days
+    val calendar = Calendar.getInstance()
+    calendar.set(Calendar.HOUR_OF_DAY, 0)
+    calendar.set(Calendar.MINUTE, 0)
+    calendar.set(Calendar.SECOND, 0)
+    calendar.set(Calendar.MILLISECOND, 0)
+    
+    val endDay = calendar.timeInMillis
+    val startDay = endDay - (29L * 24 * 60 * 60 * 1000)
 
-    val cal = Calendar.getInstance()
-    val todayOfYear = cal.get(Calendar.DAY_OF_YEAR)
+    val statsMap = dailyStats.associateBy { it.date }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
-            .padding(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            // Simplified 7x4 or 7x5 grid for the last 30 days
-            for (week in 0 until 5) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    for (day in 0 until 7) {
-                        val daysAgo = (4 - week) * 7 + (6 - day)
-                        if (daysAgo < 30) {
-                            val checkCal = Calendar.getInstance()
-                            checkCal.add(Calendar.DAY_OF_YEAR, -daysAgo)
-                            val playStat = statsMap[checkCal.get(Calendar.DAY_OF_YEAR)]
-                            
-                            val alpha = if (playStat != null) {
-                                (playStat.totalPlayCount.toFloat() / maxCount).coerceIn(0.1f, 1f)
-                            } else 0.05f
-                            
-                            Box(
-                                modifier = Modifier
-                                    .aspectRatio(1f)
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
-                            )
-                        } else {
-                            Box(modifier = Modifier.aspectRatio(1f).fillMaxWidth())
-                        }
-                    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Simple 7x5 grid (approx)
+        val chunkedDays = (0 until 30).chunked(7)
+        
+        chunkedDays.forEach { week ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                week.forEach { dayOffset ->
+                    val timestamp = startDay + (dayOffset.toLong() * 24 * 60 * 60 * 1000)
+                    val count = statsMap[timestamp]?.totalPlayCount ?: 0
+                    val alpha = (count.toFloat() / maxCount).coerceIn(0.1f, 1f)
+                    
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = if (count > 0) alpha else 0.05f))
+                            .border(1.dp, if (count > 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(8.dp))
+                    )
                 }
             }
         }
-        Text(
-            "Less \u2192 More Playtime",
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
 @Composable
-fun WeekdayAveragesChart(stats: List<DailyPlayTime>) {
-    val weekdayCounts = IntArray(7)
-    val weekdaySums = IntArray(7)
-    
-    stats.forEach { stat ->
+fun WeekdayAveragesChart(dailyStats: List<DailyPlayTime>) {
+    val dayAverages = remember(dailyStats) {
+        val sums = IntArray(7)
+        val counts = IntArray(7)
         val cal = Calendar.getInstance()
-        cal.timeInMillis = stat.date
-        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK) - 1 // 0 = Sunday
-        weekdaySums[dayOfWeek] += stat.totalPlayCount
-        weekdayCounts[dayOfWeek]++
+        
+        dailyStats.forEach { stat ->
+            cal.timeInMillis = stat.date
+            val day = (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7 // Mon = 0
+            sums[day] += stat.totalPlayCount
+            counts[day]++
+        }
+        
+        FloatArray(7) { i -> if (counts[i] > 0) sums[i].toFloat() / counts[i] else 0f }
     }
     
-    val averages = FloatArray(7) { i ->
-        if (weekdayCounts[i] > 0) weekdaySums[i].toFloat() / weekdayCounts[i] else 0f
-    }
-    
-    val maxAvg = averages.maxOrNull() ?: 1f
-    val labels = listOf("S", "M", "T", "W", "T", "F", "S")
+    val maxAvg = dayAverages.maxOrNull()?.coerceAtLeast(1f) ?: 1f
+    val dayLabels = listOf("M", "T", "W", "T", "F", "S", "S")
 
     Column {
-        Text(
-            "Average Activity by Day",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
+        SectionHeader("Average Daily Plays")
+        Spacer(Modifier.height(16.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(120.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom
         ) {
-            averages.forEachIndexed { index, avg ->
-                val heightPercent = if (maxAvg > 0) avg / maxAvg else 0f
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.weight(1f)
-                ) {
+            dayAverages.forEachIndexed { index, avg ->
+                val heightFactor = avg / maxAvg
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight(heightPercent.coerceIn(0.05f, 1f))
-                            .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                            .width(16.dp)
+                            .fillMaxHeight(heightFactor.coerceIn(0.05f, 1f))
+                            .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.secondary)
                     )
-                    Spacer(Modifier.height(4.dp))
-                    Text(labels[index], style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text(dayLabels[index], style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -372,14 +367,11 @@ fun WeekdayAveragesChart(stats: List<DailyPlayTime>) {
 fun SectionHeader(title: String) {
     Text(
         text = title,
-        style = MaterialTheme.typography.titleLarge,
+        style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Black,
+        color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.padding(bottom = 8.dp)
     )
 }
 
-// Extension to handle vertical scroll
-@Composable
-fun Modifier.verticalScrollbar() = this.then(
-    Modifier.verticalScroll(rememberScrollState())
-)
+fun Modifier.verticalScrollbar(): Modifier = this // Simplified for now

@@ -51,9 +51,13 @@ fun SongDetailsContent(
     artworkColors: ArtworkColors,
     onLyricClick: () -> Unit = {},
     onFolderClick: (String) -> Unit = {},
+    onShareClick: () -> Unit = {},
+    onDeleteClick: () -> Unit = {},
     onNavigateToArtist: ((String) -> Unit)? = null,
     onNavigateToAlbum: ((Long) -> Unit)? = null,
-    onNavigateToGenre: ((String) -> Unit)? = null
+    onNavigateToGenre: ((String) -> Unit)? = null,
+    onPinClick: () -> Unit = {},
+    isPinned: Boolean = false
 ) {
     val entryAnim = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -181,6 +185,22 @@ fun SongDetailsContent(
                 )
             }
 
+            IconButton(
+                onClick = onPinClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(
+                        if (isPinned) artworkColors.secondary.copy(alpha = 0.2f) else Color.Transparent,
+                        CircleShape
+                    )
+            ) {
+                Icon(
+                    Icons.Rounded.PushPin,
+                    contentDescription = "Pin to Hub",
+                    tint = if (isPinned) artworkColors.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Spacer(modifier = Modifier.width(16.dp))
 
             ElevatedCard(
@@ -195,6 +215,41 @@ fun SongDetailsContent(
                     contentScale = ContentScale.Crop,
                     error = painterResource(R.drawable.ic_launcher_foreground)
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            FilledTonalButton(
+                onClick = onShareClick,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = artworkColors.secondary.copy(alpha = 0.12f),
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                )
+            ) {
+                Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Share", fontWeight = FontWeight.Bold)
+            }
+
+            Button(
+                onClick = onDeleteClick,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+            ) {
+                Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Delete", fontWeight = FontWeight.Bold)
             }
         }
 

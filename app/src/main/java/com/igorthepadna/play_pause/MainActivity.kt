@@ -63,6 +63,7 @@ import com.igorthepadna.play_pause.data.LibraryFilter
 import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.data.SortOrder
 import com.igorthepadna.play_pause.data.SortType
+import com.igorthepadna.play_pause.data.PinnedType
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.ui.components.ArtistSelectionDialog
 import com.igorthepadna.play_pause.ui.components.FullScreenLyrics
@@ -71,9 +72,13 @@ import com.igorthepadna.play_pause.ui.components.NowPlayingBar
 import com.igorthepadna.play_pause.ui.components.PlaylistSelectionSheet
 import com.igorthepadna.play_pause.ui.components.SongDetailsContent
 import com.igorthepadna.play_pause.ui.screens.LibraryScreen
+import androidx.activity.result.IntentSenderRequest
+import android.app.Activity
 import com.igorthepadna.play_pause.ui.theme.PlayPauseTheme
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -156,6 +161,7 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
     var showDetailsSheet by remember { mutableStateOf(false) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf<Song?>(null) }
 
     // Colors for the current song (used in sheets)
     val detailsArtworkColors = rememberArtworkColors(
@@ -170,9 +176,11 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
         defaultSecondary = MaterialTheme.colorScheme.primary
     )
 
+    val isHomeHubActive by viewModel.isHomeHubActive.collectAsStateWithLifecycle()
+
     val isAnyOverlayVisible by remember {
         derivedStateOf {
-            isSettingsVisible || showDetailsSheet || showPlaylistSheet || showSortSheet || isPlayerFullScreenState
+            isSettingsVisible || showDetailsSheet || showPlaylistSheet || showSortSheet || isPlayerFullScreenState || isHomeHubActive
         }
     }
 
@@ -188,6 +196,8 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
             showSortSheet = false
         } else if (isPlayerFullScreenState) {
             viewModel.setPlayerFullScreen(false)
+        } else if (isHomeHubActive) {
+            viewModel.setHomeHubActive(false)
         }
     }
 
@@ -198,6 +208,26 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     
     val selectionStack by viewModel.selectionStack.collectAsStateWithLifecycle()
+
+    val deletePendingRequest by viewModel.deletePendingRequest.collectAsStateWithLifecycle()
+    val deleteLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            scope.launch {
+                delay(500) // Give MediaStore a moment to synchronize
+                viewModel.loadSongs(fromMediaStore = true)
+                snackbarHostState.showSnackbar("Song deleted")
+            }
+        }
+        viewModel.clearDeletePendingRequest()
+    }
+
+    LaunchedEffect(deletePendingRequest) {
+        deletePendingRequest?.let {
+            deleteLauncher.launch(it)
+        }
+    }
 
     val isSubMenuOpen by remember {
         derivedStateOf {
@@ -412,34 +442,63 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
                 }
             ) { paddingValues ->
                 Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-                    LibraryScreen(
-                        currentFilter = currentFilter,
-                        hasPermission = hasPermission,
-                        isRefreshing = isRefreshing,
-                        onPermissionChanged = { hasPermission = it },
-                        onPlaySongs = { songList, index, shuffle -> viewModel.playSongs(songList, index, shuffle) },
-                        onSongDetails = { song ->
-                            selectedSongForDetails = song
-                            showDetailsSheet = true
-                        },
-                        onAddToPlaylist = { song ->
-                            selectedSongForPlaylist = song
-                            showPlaylistSheet = true
-                        },
-                        viewModel = viewModel,
-                        tabSortSettings = currentTabSettings,
-                        onShowMessage = { message ->
-                            scope.launch {
-                                snackbarHostState.currentSnackbarData?.dismiss()
-                                snackbarHostState.showSnackbar(
-                                    message = message,
-                                    duration = SnackbarDuration.Short
-                                )
+                    AnimatedContent(
+                        targetState = isHomeHubActive,
+                        transitionSpec = {
+                            if (targetState) {
+                                (slideInHorizontally { width -> width } + fadeIn()).togetherWith(slideOutHorizontally { width -> -width / 2 } + fadeOut())
+                            } else {
+                                (slideInHorizontally { width -> -width / 2 } + fadeIn()).togetherWith(slideOutHorizontally { width -> width } + fadeOut())
                             }
                         },
-                        onSettingsClick = { isSettingsVisible = true },
-                        onSortClick = { showSortSheet = true }
-                    )
+                        label = "hub_transition"
+                    ) { hubActive ->
+                        if (hubActive) {
+                            val currentHubFilter by viewModel.currentHubFilter.collectAsStateWithLifecycle()
+                            com.igorthepadna.play_pause.ui.screens.HomeHubScreen(
+                                viewModel = viewModel,
+                                currentHubFilter = currentHubFilter,
+                                onPlaySongs = { songList, index, shuffle -> viewModel.playSongs(songList, index, shuffle) },
+                                onSongDetails = { song ->
+                                    selectedSongForDetails = song
+                                    showDetailsSheet = true
+                                },
+                                onAddToPlaylist = { song ->
+                                    selectedSongForPlaylist = song
+                                    showPlaylistSheet = true
+                                }
+                            )
+                        } else {
+                            LibraryScreen(
+                                currentFilter = currentFilter,
+                                hasPermission = hasPermission,
+                                isRefreshing = isRefreshing,
+                                onPermissionChanged = { hasPermission = it },
+                                onPlaySongs = { songList, index, shuffle -> viewModel.playSongs(songList, index, shuffle) },
+                                onSongDetails = { song ->
+                                    selectedSongForDetails = song
+                                    showDetailsSheet = true
+                                },
+                                onAddToPlaylist = { song ->
+                                    selectedSongForPlaylist = song
+                                    showPlaylistSheet = true
+                                },
+                                viewModel = viewModel,
+                                tabSortSettings = currentTabSettings,
+                                onShowMessage = { message ->
+                                    scope.launch {
+                                        snackbarHostState.currentSnackbarData?.dismiss()
+                                        snackbarHostState.showSnackbar(
+                                            message = message,
+                                            duration = SnackbarDuration.Short
+                                        )
+                                    }
+                                },
+                                onSettingsClick = { isSettingsVisible = true },
+                                onSortClick = { showSortSheet = true }
+                            )
+                        }
+                    }
 
                     val navBarAtTop by viewModel.navBarAtTop.collectAsStateWithLifecycle()
 
@@ -676,6 +735,38 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
         }
     }
 
+    if (showDeleteConfirm != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = null },
+            title = { Text("Delete Song?") },
+            text = { Text("Are you sure you want to permanently delete \"${showDeleteConfirm?.title}\" from your device? This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val songToDelete = showDeleteConfirm!!
+                        showDeleteConfirm = null
+                        showDetailsSheet = false
+                        viewModel.deleteSong(songToDelete) { success ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (success) "Song deleted" else "Failed to delete song"
+                                )
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     if (showSortSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSortSheet = false },
@@ -693,6 +784,11 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
     }
 
     if (showDetailsSheet && selectedSongForDetails != null) {
+        val pinnedItems by viewModel.pinnedItems.collectAsStateWithLifecycle()
+        val isPinned = remember(pinnedItems, selectedSongForDetails) {
+            pinnedItems.any { it.type == PinnedType.SONG && it.mediaId == selectedSongForDetails?.id?.toString() }
+        }
+
         ModalBottomSheet(
             onDismissRequest = { showDetailsSheet = false },
             sheetState = detailsSheetState,
@@ -702,9 +798,39 @@ fun PlayPauseApp(viewModel: MainViewModel, player: Player?, intent: Intent) {
             SongDetailsContent(
                 song = selectedSongForDetails!!,
                 artworkColors = detailsArtworkColors,
+                isPinned = isPinned,
+                onPinClick = {
+                    viewModel.togglePin(PinnedType.SONG, selectedSongForDetails!!.id.toString())
+                },
                 onLyricClick = {
                     showDetailsSheet = false
                     viewModel.setFullScreenLyricsVisible(true, compactMode = true, songId = selectedSongForDetails?.id)
+                },
+                onShareClick = {
+                    val song = selectedSongForDetails!!
+                    val file = java.io.File(song.path)
+                    if (file.exists()) {
+                        try {
+                            val uri = FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.provider",
+                                file
+                            )
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "audio/*"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Share Song"))
+                        } catch (e: Exception) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Failed to share song")
+                            }
+                        }
+                    }
+                },
+                onDeleteClick = {
+                    showDeleteConfirm = selectedSongForDetails
                 },
                 onFolderClick = { path ->
                     val folderPath = path.substringBeforeLast("/")
