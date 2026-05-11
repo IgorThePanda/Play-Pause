@@ -995,6 +995,37 @@ fun SortBottomSheetContent(
             }
         }
 
+        if (currentFilter == LibraryFilter.SONGS) {
+            Spacer(Modifier.height(24.dp))
+            Text("Lyrics Filter", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                com.igorthepadna.play_pause.data.LyricsFilter.entries.forEach { filter ->
+                    FilterChip(
+                        selected = settings.lyricsFilter == filter,
+                        onClick = { onUpdate(settings.copy(lyricsFilter = filter)) },
+                        label = { 
+                            Text(when(filter) {
+                                com.igorthepadna.play_pause.data.LyricsFilter.ALL -> "All Songs"
+                                com.igorthepadna.play_pause.data.LyricsFilter.ANY -> "Any Lyrics"
+                                com.igorthepadna.play_pause.data.LyricsFilter.VERSE_SYNCED -> "Verse Synced"
+                                com.igorthepadna.play_pause.data.LyricsFilter.WORD_SYNCED -> "Word Synced"
+                                com.igorthepadna.play_pause.data.LyricsFilter.NONE -> "No Lyrics"
+                            }) 
+                        },
+                        leadingIcon = if (settings.lyricsFilter == filter) {
+                            { Icon(Icons.Rounded.Check, null, Modifier.size(16.dp)) }
+                        } else null,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                }
+            }
+        }
+
         if (currentFilter == LibraryFilter.ARTISTS) {
             Spacer(Modifier.height(24.dp))
             Row(

@@ -115,15 +115,18 @@ class MusicRepository(private val context: Context) {
                 
                 val (cleanTitle, cleanArtist) = processSongMetadata(rawTitle, rawArtist)
                 val songUri = ContentUris.withAppendedId(collection, id)
+                val path = cursor.getString(dataCol) ?: ""
+                val lyrics = getLyricsSync(path)
 
                 songList.add(Song(
                     id = id, title = cleanTitle, artist = cleanArtist, album = cleanTitle(cursor.getString(albumCol) ?: "Unknown Album"),
                     duration = cursor.getLong(durCol), uri = songUri,
                     albumArtUri = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), cursor.getLong(albIdCol)),
-                    path = cursor.getString(dataCol) ?: "", size = cursor.getLong(sizeCol), format = cursor.getString(mimeCol) ?: "",
+                    path = path, size = cursor.getLong(sizeCol), format = cursor.getString(mimeCol) ?: "",
                     dateAdded = cursor.getLong(dateCol), trackNumber = track, discNumber = if (disc == 0) 1 else disc,
                     albumArtist = if (albArtCol != -1) cursor.getString(albArtCol) else null, albumId = cursor.getLong(albIdCol),
-                    year = cursor.getInt(yearCol), bitrate = if (cursor.getLong(durCol) > 0) "${(cursor.getLong(sizeCol) * 8 / cursor.getLong(durCol)).toInt()} kbps" else null
+                    year = cursor.getInt(yearCol), bitrate = if (cursor.getLong(durCol) > 0) "${(cursor.getLong(sizeCol) * 8 / cursor.getLong(durCol)).toInt()} kbps" else null,
+                    lyrics = lyrics
                 ))
             }
         }
@@ -131,7 +134,7 @@ class MusicRepository(private val context: Context) {
         cachedSongs = songList; cachedAlbums = null; cachedArtists = null; songList
     }
 
-    private fun Song.toEntity() = SongEntity(id, title, artist, album, duration, uri.toString(), albumArtUri?.toString(), path, size, format, dateAdded, trackNumber, discNumber, albumArtist, albumId, year)
+    private fun Song.toEntity() = SongEntity(id, title, artist, album, duration, uri.toString(), albumArtUri?.toString(), path, size, format, dateAdded, trackNumber, discNumber, albumArtist, albumId, year, lyrics)
     private fun SongEntity.toDomain(): Song {
         val (cleanTitle, cleanArtist) = processSongMetadata(title, artist)
         val cleanAlbum = cleanTitle(album)
@@ -141,7 +144,8 @@ class MusicRepository(private val context: Context) {
             size = size, format = format, dateAdded = dateAdded, 
             trackNumber = if (trackNumber >= 1000) trackNumber % 1000 else trackNumber, 
             discNumber = discNumber, albumArtist = albumArtist, albumId = albumId, year = year, 
-            bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null
+            bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null,
+            lyrics = lyrics
         )
     }
     private fun Album.toEntity() = AlbumEntity(id, title, artist, artworkUri?.toString(), year, hasFolderCover)
@@ -397,9 +401,13 @@ class MusicRepository(private val context: Context) {
     }
 
     suspend fun getLyrics(path: String): String? = withContext(Dispatchers.IO) {
+        getLyricsSync(path)
+    }
+
+    private fun getLyricsSync(path: String): String? {
         val lrc = File(path.substringBeforeLast(".") + ".lrc")
-        if (lrc.exists()) try { return@withContext lrc.readText() } catch (e: Exception) {}
-        try { val r = MediaMetadataRetriever(); r.setDataSource(path); val l = r.extractMetadata(1000); r.release(); l } catch (e: Exception) { null }
+        if (lrc.exists()) try { return lrc.readText() } catch (e: Exception) {}
+        try { val r = MediaMetadataRetriever(); r.setDataSource(path); val l = r.extractMetadata(1000); r.release(); return l } catch (e: Exception) { return null }
     }
 
     suspend fun getDetailedBitrate(path: String): String? = withContext(Dispatchers.IO) {

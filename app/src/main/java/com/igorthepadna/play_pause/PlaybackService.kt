@@ -19,10 +19,16 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.igorthepadna.play_pause.data.db.AppDatabase
+import com.igorthepadna.play_pause.data.db.SkipRuleEntity
+import com.igorthepadna.play_pause.data.db.SkipType
+import kotlinx.coroutines.*
 import java.util.Random
 
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
+    private var skipJob: Job? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     companion object {
         private const val CUSTOM_COMMAND_TOGGLE_SHUFFLE = "TOGGLE_SHUFFLE"
@@ -153,6 +159,57 @@ class PlaybackService : MediaSessionService() {
             .build()
             
         updateCustomLayout()
+        startSkipPoller(player)
+    }
+
+    private fun startSkipPoller(player: Player) {
+        val db = AppDatabase.getDatabase(this)
+        val prefs = getSharedPreferences("play_pause_prefs", MODE_PRIVATE)
+        
+        var lastSkippedMediaId: String? = null
+
+        skipJob?.cancel()
+        skipJob = serviceScope.launch {
+            while (isActive) {
+                val isSkipEnabled = prefs.getBoolean("skip_mode_enabled", false)
+                if (isSkipEnabled && player.playbackState == Player.STATE_READY) {
+                    val mediaId = player.currentMediaItem?.mediaId
+                    if (mediaId != null && mediaId != lastSkippedMediaId) {
+                        val rules = withContext(Dispatchers.IO) {
+                            db.skipRuleDao().getRulesForSongSync(mediaId)
+                        }
+                        
+                        val currentPos = player.currentPosition
+                        
+                        for (rule in rules) {
+                            when (rule.type) {
+                                SkipType.ENTIRE_SONG -> {
+                                    lastSkippedMediaId = mediaId
+                                    withContext(Dispatchers.Main) {
+                                        if (player.hasNextMediaItem()) {
+                                            player.seekToNext()
+                                        } else {
+                                            player.pause()
+                                        }
+                                    }
+                                    break
+                                }
+                                SkipType.SECTION -> {
+                                    if (currentPos in rule.startTime until (rule.endTime - 100)) {
+                                        withContext(Dispatchers.Main) {
+                                            player.seekTo(rule.endTime)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                    lastSkippedMediaId = null
+                }
+                delay(300)
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
@@ -165,6 +222,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        skipJob?.cancel()
+        serviceScope.cancel()
         mediaSession?.run {
             player.release()
             release()

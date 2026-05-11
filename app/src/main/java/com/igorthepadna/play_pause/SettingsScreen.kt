@@ -636,6 +636,13 @@ fun BackupSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigat
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { context.contentResolver.openInputStream(it)?.let { isStream -> viewModel.importPlaylists(isStream) } }
     }
+    
+    val exportSkipRulesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { context.contentResolver.openOutputStream(it)?.let { os -> viewModel.exportSkipRules(os) } }
+    }
+    val importSkipRulesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { context.contentResolver.openInputStream(it)?.let { isStream -> viewModel.importSkipRules(isStream) } }
+    }
 
     if (showClearHistoryDialog) {
         AlertDialog(
@@ -697,6 +704,21 @@ fun BackupSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigat
                     subtitle = "Restore playlists from JSON or M3U file",
                     icon = Icons.Rounded.Download,
                     onClick = { importLauncher.launch(arrayOf("application/json", "audio/mpegurl", "audio/x-mpegurl", "application/octet-stream")) }
+                )
+            }
+
+            SettingsSection(title = "Skip Rules Backup") {
+                SettingsActionItem(
+                    title = "Export Skip Rules",
+                    subtitle = "Save all song skip rules to a JSON file",
+                    icon = Icons.Rounded.Upload,
+                    onClick = { exportSkipRulesLauncher.launch("play_pause_skip_rules.json") }
+                )
+                SettingsActionItem(
+                    title = "Import Skip Rules",
+                    subtitle = "Restore skip rules from a JSON file",
+                    icon = Icons.Rounded.Download,
+                    onClick = { importSkipRulesLauncher.launch(arrayOf("application/json")) }
                 )
             }
 

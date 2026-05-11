@@ -13,14 +13,16 @@ import androidx.room.RoomDatabase
         AlbumEntity::class,
         ArtistEntity::class,
         PlayEvent::class,
-        PinnedItemEntity::class
+        PinnedItemEntity::class,
+        SkipRuleEntity::class
     ],
-    version = 6,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun statsDao(): StatsDao
+    abstract fun skipRuleDao(): SkipRuleDao
 
     companion object {
         @Volatile

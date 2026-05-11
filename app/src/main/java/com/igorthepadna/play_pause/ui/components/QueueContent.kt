@@ -11,9 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material.icons.rounded.DragHandle
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,6 +39,9 @@ import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
 
+import com.igorthepadna.play_pause.data.db.SkipRuleEntity
+import com.igorthepadna.play_pause.data.db.SkipType
+
 private data class QueueItem(
     val indexInPlayer: Int,
     val mediaItem: MediaItem,
@@ -50,7 +51,11 @@ private data class QueueItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QueueContent(player: Player, artworkColors: ArtworkColors) {
+fun QueueContent(
+    player: Player,
+    artworkColors: ArtworkColors,
+    allSkipRules: List<SkipRuleEntity> = emptyList()
+) {
     val haptic = LocalHapticFeedback.current
     
     var shuffleModeEnabled by remember { mutableStateOf(player.shuffleModeEnabled) }
@@ -319,6 +324,20 @@ fun QueueContent(player: Player, artworkColors: ArtworkColors) {
                                             style = MaterialTheme.typography.bodySmall,
                                             mainColor = if (isCurrent) contentColorFor(artworkColors.secondary).copy(alpha = 0.8f)
                                                     else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    val isSkipped = remember(allSkipRules, item.mediaId) {
+                                        allSkipRules.any { it.mediaId == item.mediaId && it.type == SkipType.ENTIRE_SONG }
+                                    }
+
+                                    if (isSkipped) {
+                                        Icon(
+                                            Icons.Rounded.Block,
+                                            contentDescription = "Skipped",
+                                            tint = if (isCurrent) contentColorFor(artworkColors.secondary).copy(alpha = 0.6f) 
+                                                   else MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(20.dp).padding(end = 8.dp)
                                         )
                                     }
 

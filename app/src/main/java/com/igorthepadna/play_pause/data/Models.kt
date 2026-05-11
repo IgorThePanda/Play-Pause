@@ -118,6 +118,10 @@ enum class SortOrder {
     ASC, DESC
 }
 
+enum class LyricsFilter {
+    ALL, ANY, VERSE_SYNCED, WORD_SYNCED, NONE
+}
+
 enum class PinnedType {
     SONG, ALBUM, ARTIST, PLAYLIST
 }

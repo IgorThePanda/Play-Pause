@@ -17,9 +17,13 @@ import com.igorthepadna.play_pause.data.Playlist
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.data.SortOrder
 import com.igorthepadna.play_pause.data.SortType
+import com.igorthepadna.play_pause.data.LyricsFilter
 import com.igorthepadna.play_pause.data.PinnedItem
 import com.igorthepadna.play_pause.data.PinnedType
 import com.igorthepadna.play_pause.data.db.PinnedItemEntity
+import com.igorthepadna.play_pause.data.db.AppDatabase
+import com.igorthepadna.play_pause.data.db.SkipRuleEntity
+import com.igorthepadna.play_pause.data.db.SkipType
 import android.provider.MediaStore
 import android.database.ContentObserver
 import android.os.Handler
@@ -58,7 +62,8 @@ enum class ColorSchemeType {
 data class TabSortSettings(
     val sortType: SortType = SortType.TITLE,
     val sortOrder: SortOrder = SortOrder.ASC,
-    val showOnlyAlbumArtists: Boolean = false
+    val showOnlyAlbumArtists: Boolean = false,
+    val lyricsFilter: LyricsFilter = LyricsFilter.ALL
 )
 
 data class ViewModeSettings(
@@ -213,6 +218,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val currentFilter = _currentFilter.asStateFlow()
 
+    private val _isSkipModeEnabled = MutableStateFlow(prefs.getBoolean("skip_mode_enabled", false))
+    val isSkipModeEnabled = _isSkipModeEnabled.asStateFlow()
+
+    private val skipRuleDao = AppDatabase.getDatabase(application).skipRuleDao()
+    val allSkipRules: StateFlow<List<SkipRuleEntity>> = skipRuleDao.getAllRules().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList<SkipRuleEntity>())
+
     private val _artistSelectionDialog = MutableStateFlow<List<String>?>(null)
     val artistSelectionDialog = _artistSelectionDialog.asStateFlow()
 
@@ -330,7 +341,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val order = runCatching { SortOrder.valueOf(prefs.getString("sort_order_${filter.name}", SortOrder.ASC.name)!!) }.getOrDefault(SortOrder.ASC)
             val onlyAlbumArtists = prefs.getBoolean("only_album_artists_${filter.name}", false)
-            TabSortSettings(type, order, onlyAlbumArtists)
+            val lyrFilter = runCatching { LyricsFilter.valueOf(prefs.getString("lyrics_filter_${filter.name}", LyricsFilter.ALL.name)!!) }.getOrDefault(LyricsFilter.ALL)
+            TabSortSettings(type, order, onlyAlbumArtists, lyrFilter)
         }
     )
     val tabSortSettings = _tabSortSettings.asStateFlow()
@@ -382,21 +394,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val filteredSongs = combine(_songs, debouncedSearchQuery, _tabSortSettings) { allSongs, query, settings ->
         val currentSettings = settings[LibraryFilter.SONGS] ?: TabSortSettings()
         
-        // Fast path for empty query
-        if (query.isBlank()) {
-            return@combine when (currentSettings.sortType) {
-                SortType.TITLE -> if (currentSettings.sortOrder == SortOrder.ASC) allSongs.sortedBy { it.title } else allSongs.sortedByDescending { it.title }
-                SortType.ARTIST -> if (currentSettings.sortOrder == SortOrder.ASC) allSongs.sortedBy { it.artist } else allSongs.sortedByDescending { it.artist }
-                SortType.RELEASE_DATE -> if (currentSettings.sortOrder == SortOrder.ASC) allSongs.sortedBy { it.year } else allSongs.sortedByDescending { it.year }
-                else -> allSongs
+        var list = if (query.isBlank()) {
+            allSongs
+        } else {
+            allSongs.filter { 
+                it.title.contains(query, ignoreCase = true) || 
+                it.artist.contains(query, ignoreCase = true) ||
+                (it.albumArtist?.contains(query, ignoreCase = true) ?: false)
             }
         }
 
-        // Optimized filtering: check title first as it's more likely to match
-        val list = allSongs.filter { 
-            it.title.contains(query, ignoreCase = true) || 
-            it.artist.contains(query, ignoreCase = true) ||
-            (it.albumArtist?.contains(query, ignoreCase = true) ?: false)
+        // Apply Lyrics Filter
+        if (currentSettings.lyricsFilter != LyricsFilter.ALL) {
+            list = list.filter { song ->
+                val lrc = song.lyrics ?: ""
+                when (currentSettings.lyricsFilter) {
+                    LyricsFilter.ANY -> lrc.isNotBlank()
+                    LyricsFilter.VERSE_SYNCED -> lrc.contains(Regex("\\[\\d{1,2}:\\d{1,2}"))
+                    LyricsFilter.WORD_SYNCED -> lrc.contains(Regex("<\\d{1,2}:\\d{1,2}"))
+                    LyricsFilter.NONE -> lrc.isBlank()
+                    else -> true
+                }
+            }
         }
         
         when (currentSettings.sortType) {
@@ -561,6 +580,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (id == null) {
             clearSelections()
         } else {
+            _isHomeHubActive.value = false
             _selectionStack.value = _selectionStack.value + Selection.Album(id)
             saveSelectionStack()
         }
@@ -570,6 +590,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (name == null) {
             clearSelections()
         } else {
+            _isHomeHubActive.value = false
             _selectionStack.value = _selectionStack.value + Selection.Artist(name)
             saveSelectionStack()
         }
@@ -687,6 +708,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("lyric_alignment_center", center).apply()
     }
 
+    fun setSkipModeEnabled(enabled: Boolean) {
+        _isSkipModeEnabled.value = enabled
+        prefs.edit().putBoolean("skip_mode_enabled", enabled).apply()
+    }
+
+    fun addSkipRule(rule: SkipRuleEntity) {
+        viewModelScope.launch {
+            skipRuleDao.insert(rule)
+        }
+    }
+
+    fun removeSkipRule(rule: SkipRuleEntity) {
+        viewModelScope.launch {
+            skipRuleDao.delete(rule)
+        }
+    }
+
+    fun deleteRulesForSong(mediaId: String) {
+        viewModelScope.launch {
+            skipRuleDao.deleteRulesForSong(mediaId)
+        }
+    }
+    
+    fun exportSkipRules(outputStream: java.io.OutputStream) {
+        viewModelScope.launch {
+            val rules = allSkipRules.value
+            val json = Json.encodeToString(rules)
+            outputStream.write(json.toByteArray())
+            outputStream.close()
+        }
+    }
+
+    fun importSkipRules(inputStream: java.io.InputStream) {
+        viewModelScope.launch {
+            try {
+                val json = inputStream.bufferedReader().use { it.readText() }
+                val rules = Json.decodeFromString<List<SkipRuleEntity>>(json)
+                skipRuleDao.insertAll(rules)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun setResetOnPrevious(enabled: Boolean) {
         _resetOnPrevious.value = enabled
         prefs.edit().putBoolean("reset_on_previous", enabled).apply()
@@ -773,6 +838,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putString("sort_type_${filter.name}", settings.sortType.name)
             putString("sort_order_${filter.name}", settings.sortOrder.name)
             putBoolean("only_album_artists_${filter.name}", settings.showOnlyAlbumArtists)
+            putString("lyrics_filter_${filter.name}", settings.lyricsFilter.name)
         }.apply()
     }
 
@@ -787,8 +853,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val onlyMusic = _scanOnlyMusicFolder.value
             
+            _isRefreshing.value = true
             if (refresh) {
-                _isRefreshing.value = true
                 repository.scanMusicFolders(onlyMusic)
             }
 
@@ -803,9 +869,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val artists = repository.getArtists(songs, albums, useCache = useCache)
             _allArtists.value = artists
 
-            if (refresh) {
-                _isRefreshing.value = false
-            }
+            _isRefreshing.value = false
         }
     }
 

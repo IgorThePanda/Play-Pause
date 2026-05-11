@@ -33,7 +33,8 @@ data class SongEntity(
     val discNumber: Int,
     val albumArtist: String?,
     val albumId: Long,
-    val year: Int
+    val year: Int,
+    val lyrics: String? = null
 )
 
 @Entity(tableName = "cached_albums")

@@ -89,7 +89,7 @@ fun HomeHubScreen(
                                 title = "Top Artist",
                                 subtitle = weeklyTopArtist!!.artistName,
                                 icon = Icons.Rounded.Person,
-                                onClick = { viewModel.setSelectedArtistName(weeklyTopArtist!!.artistName); viewModel.setHomeHubActive(false) }
+                                onClick = { viewModel.setSelectedArtistName(weeklyTopArtist!!.artistName) }
                             )
                         }
                     }
@@ -304,7 +304,6 @@ private fun PinnedItemCard(
                     album = album,
                     onClick = { 
                         viewModel.setSelectedAlbumId(album.id)
-                        viewModel.setHomeHubActive(false)
                     },
                     onPlayClick = { onPlaySongs(album.songs, 0, null) },
                     columns = 2
@@ -318,7 +317,6 @@ private fun PinnedItemCard(
                     artist = artist,
                     onClick = { 
                         viewModel.setSelectedArtistName(artist.name)
-                        viewModel.setHomeHubActive(false)
                     },
                     columns = 2
                 )
@@ -331,7 +329,6 @@ private fun PinnedItemCard(
                     playlist = playlist,
                     onClick = { 
                         viewModel.setSelectedPlaylistId(playlist.id)
-                        viewModel.setHomeHubActive(false)
                     },
                     albumArtMap = albumArtMap
                 )

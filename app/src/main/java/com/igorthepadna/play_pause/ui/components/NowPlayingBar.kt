@@ -260,35 +260,39 @@ fun NowPlayingBar(
                                 ) {
                                     val isHubActive by viewModel?.isHomeHubActive?.collectAsStateWithLifecycle(false) ?: remember { mutableStateOf(false) }
                                     
-                                    IconButton(
-                                        onClick = { 
-                                            viewModel?.setHomeHubActive(!isHubActive)
-                                        }, 
-                                        modifier = Modifier.size(42.dp)
-                                    ) {
-                                        Icon(
-                                            if (isHubActive) Icons.Rounded.Dashboard else Icons.Rounded.DashboardCustomize, 
-                                            contentDescription = "Home Hub", 
-                                            modifier = Modifier.size(22.dp),
-                                            tint = if (isHubActive) (if (hasMedia) artworkColors.secondary else MaterialTheme.colorScheme.primary) else LocalContentColor.current
+                                    if (showSearch) {
+                                        IconButton(
+                                            onClick = { 
+                                                viewModel?.setHomeHubActive(!isHubActive)
+                                            }, 
+                                            modifier = Modifier.size(42.dp)
+                                        ) {
+                                            Icon(
+                                                if (isHubActive) Icons.Rounded.Dashboard else Icons.Rounded.DashboardCustomize, 
+                                                contentDescription = "Home Hub", 
+                                                modifier = Modifier.size(22.dp),
+                                                tint = if (isHubActive) (if (hasMedia) artworkColors.secondary else MaterialTheme.colorScheme.primary) else LocalContentColor.current
+                                            )
+                                        }
+
+                                        VerticalDivider(
+                                            modifier = Modifier.height(24.dp).padding(horizontal = 2.dp), 
+                                            thickness = 1.dp, 
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                                         )
                                     }
 
-                                    VerticalDivider(
-                                        modifier = Modifier.height(24.dp).padding(horizontal = 2.dp), 
-                                        thickness = 1.dp, 
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                    )
-
-                                    IconButton(onClick = { searchExpanded = true }, modifier = Modifier.size(42.dp)) {
-                                        Icon(Icons.Rounded.Search, contentDescription = "Search", modifier = Modifier.size(22.dp))
+                                    if (showSearch) {
+                                        IconButton(onClick = { searchExpanded = true }, modifier = Modifier.size(42.dp)) {
+                                            Icon(Icons.Rounded.Search, contentDescription = "Search", modifier = Modifier.size(22.dp))
+                                        }
+                                        
+                                        VerticalDivider(
+                                            modifier = Modifier.height(24.dp).padding(horizontal = 2.dp), 
+                                            thickness = 1.dp, 
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                        )
                                     }
-                                    
-                                    VerticalDivider(
-                                        modifier = Modifier.height(24.dp).padding(horizontal = 2.dp), 
-                                        thickness = 1.dp, 
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                    )
 
                                     Box(modifier = Modifier.weight(1f)) {
                                         val hubFilters by viewModel?.hubOrder?.collectAsStateWithLifecycle(com.igorthepadna.play_pause.data.HubFilter.entries) ?: remember { mutableStateOf(com.igorthepadna.play_pause.data.HubFilter.entries) }
@@ -328,11 +332,10 @@ fun NowPlayingBar(
                                                     Box(
                                                         modifier = Modifier
                                                             .fillMaxSize()
-                                                            .clickable(
-                                                                interactionSource = remember { MutableInteractionSource() },
-                                                                indication = null
-                                                            ) {
-                                                                scope.launch { hubPagerState.animateScrollToPage(page) }
+                                                            .pointerInput(page) {
+                                                                detectTapGestures(
+                                                                    onTap = { scope.launch { hubPagerState.animateScrollToPage(page) } }
+                                                                )
                                                             },
                                                         contentAlignment = Alignment.Center
                                                     ) {
@@ -340,9 +343,6 @@ fun NowPlayingBar(
                                                             modifier = Modifier
                                                                 .graphicsLayer {
                                                                     alpha = if (isSelected) 1f else 0.5f
-                                                                    val scale = if (isSelected) 1f else 0.9f
-                                                                    scaleX = scale
-                                                                    scaleY = scale
                                                                 }
                                                                 .clip(CircleShape)
                                                                 .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -381,11 +381,11 @@ fun NowPlayingBar(
                                                     Box(
                                                         modifier = Modifier
                                                             .fillMaxSize()
-                                                            .clickable(
-                                                                interactionSource = remember { MutableInteractionSource() },
-                                                                indication = null
-                                                            ) {
-                                                                scope.launch { pagerState.animateScrollToPage(page) }
+                                                            .pointerInput(page) {
+                                                                detectTapGestures(
+                                                                    onTap = { scope.launch { pagerState.animateScrollToPage(page) } },
+                                                                    onDoubleTap = { onSortClick() }
+                                                                )
                                                             },
                                                         contentAlignment = Alignment.Center
                                                     ) {
@@ -393,51 +393,8 @@ fun NowPlayingBar(
                                                             modifier = Modifier
                                                                 .graphicsLayer {
                                                                     alpha = if (isSelected) 1f else 0.5f
-                                                                    val scale = if (isSelected) 1f else 0.9f
-                                                                    scaleX = scale
-                                                                    scaleY = scale
                                                                 }
                                                                 .clip(CircleShape)
-                                                                .pointerInput(page) {
-                                                                    detectTapGestures(
-                                                                        onDoubleTap = { onSortClick() }
-                                                                    )
-                                                                }
-                                                                .pointerInput(page, isSelected) {
-                                                                    if (isSelected) {
-                                                                        detectDragGesturesAfterLongPress(
-                                                                            onDragStart = {
-                                                                                isQuickNavActive = true
-                                                                                quickNavDragY = 0f
-                                                                                quickNavSelectedIndex = filters.size - 1
-                                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                            },
-                                                                            onDragEnd = {
-                                                                                if (isQuickNavActive) {
-                                                                                    if (quickNavSelectedIndex in filters.indices) {
-                                                                                        onFilterSelected(filters[quickNavSelectedIndex])
-                                                                                    }
-                                                                                    isQuickNavActive = false
-                                                                                }
-                                                                            },
-                                                                            onDragCancel = { isQuickNavActive = false },
-                                                                            onDrag = { change, dragAmount ->
-                                                                                change.consume()
-                                                                                quickNavDragY += dragAmount.y
-                                                                                val itemHeight = 56.dp.toPx()
-                                                                                val dragDist = (-quickNavDragY).coerceAtLeast(0f)
-                                                                                val offset = (dragDist / itemHeight).toInt()
-                                                                                val nextIdx = (filters.size - 1 - offset).coerceIn(0, filters.size - 1)
-                                                                                if (nextIdx != quickNavSelectedIndex) {
-                                                                                    quickNavSelectedIndex = nextIdx
-                                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                                }
-                                                                            }
-                                                                        )
-                                                                    } else {
-                                                                        detectTapGestures(onLongPress = { onSortClick() })
-                                                                    }
-                                                                }
                                                                 .padding(horizontal = 12.dp, vertical = 6.dp),
                                                             verticalAlignment = Alignment.CenterVertically,
                                                             horizontalArrangement = Arrangement.Center

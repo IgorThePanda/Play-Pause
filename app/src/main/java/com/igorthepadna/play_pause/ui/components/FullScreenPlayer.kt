@@ -711,7 +711,10 @@ private fun PlayerAdditionalControls(
     isLyricsVisible: Boolean,
     onToggleLyrics: () -> Unit,
     onAddClick: () -> Unit,
-    onMoreClick: () -> Unit
+    onMoreClick: () -> Unit,
+    isSkipModeEnabled: Boolean,
+    onToggleSkipMode: (Boolean) -> Unit,
+    onSkipSettingsClick: () -> Unit
 ) {
     Surface(
         shape = CircleShape,
@@ -755,6 +758,16 @@ private fun PlayerAdditionalControls(
                 )
             }
             IconButton(onClick = onAddClick) { Icon(Icons.Rounded.Add, null) }
+            IconButton(onClick = { onToggleSkipMode(!isSkipModeEnabled) }) {
+                Icon(
+                    if (isSkipModeEnabled) Icons.Rounded.FastForward else Icons.Rounded.FastForward,
+                    null,
+                    tint = if (isSkipModeEnabled) artworkColors.tertiary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                )
+            }
+            IconButton(onClick = onSkipSettingsClick) {
+                Icon(Icons.Rounded.SettingsBackupRestore, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             IconButton(onClick = onMoreClick) { Icon(Icons.Rounded.MoreHoriz, null) }
         }
     }
@@ -769,6 +782,7 @@ private fun PlayerQueueSheet(
     isQueueVisible: Boolean,
     artworkColors: ArtworkColors,
     player: Player,
+    allSkipRules: List<com.igorthepadna.play_pause.data.db.SkipRuleEntity> = emptyList(),
     onToggleQueue: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragStopped: suspend kotlinx.coroutines.CoroutineScope.(Float) -> Unit
@@ -814,12 +828,13 @@ private fun PlayerQueueSheet(
                 }
             }
             Box(modifier = Modifier.weight(1f)) {
-                QueueContent(player, artworkColors)
+                QueueContent(player, artworkColors, allSkipRules)
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullScreenPlayer(
     player: Player, 
@@ -859,6 +874,9 @@ fun FullScreenPlayer(
     val lyricInactiveAlpha by viewModel.lyricInactiveAlpha.collectAsStateWithLifecycle()
     val lyricActiveScale by viewModel.lyricActiveScale.collectAsStateWithLifecycle()
     val lyricLineSpacing by viewModel.lyricLineSpacing.collectAsStateWithLifecycle()
+
+    val isSkipModeEnabled by viewModel.isSkipModeEnabled.collectAsStateWithLifecycle()
+    var showSkipSettings by remember { mutableStateOf(false) }
 
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var currentPosition by remember { mutableLongStateOf(player.currentPosition) }
@@ -901,12 +919,14 @@ fun FullScreenPlayer(
 
     val isAnyOverlayVisible by remember {
         derivedStateOf {
-            isLyricsVisible || isQueueVisible || offsetY < -1f
+            isLyricsVisible || isQueueVisible || offsetY < -1f || showSkipSettings
         }
     }
 
     BackHandler(enabled = isAnyOverlayVisible, onBack = {
-        if (isLyricsVisible) {
+        if (showSkipSettings) {
+            showSkipSettings = false
+        } else if (isLyricsVisible) {
             viewModel.setLyricsOnCover(false)
         } else if (isQueueVisible) {
             scope.launch {
@@ -1097,11 +1117,16 @@ fun FullScreenPlayer(
                     isLyricsVisible = isLyricsVisible,
                     onToggleLyrics = { viewModel.setLyricsOnCover(!isLyricsVisible) },
                     onAddClick = { currentSong?.let { onAddClick(it) } },
-                    onMoreClick = { currentSong?.let { onMoreClick(it) } }
+                    onMoreClick = { currentSong?.let { onMoreClick(it) } },
+                    isSkipModeEnabled = isSkipModeEnabled,
+                    onToggleSkipMode = { viewModel.setSkipModeEnabled(it) },
+                    onSkipSettingsClick = { showSkipSettings = true }
                 )
 
                 Spacer(modifier = Modifier.height(64.dp))
             }
+
+            val allSkipRules by viewModel.allSkipRules.collectAsStateWithLifecycle()
 
             PlayerQueueSheet(
                 queueOffsetY = queueOffsetY,
@@ -1111,6 +1136,7 @@ fun FullScreenPlayer(
                 isQueueVisible = isQueueVisible,
                 artworkColors = artworkColors,
                 player = player,
+                allSkipRules = allSkipRules,
                 onToggleQueue = {
                     scope.launch {
                         val target = if (isQueueVisible) closedValue else topPaddingPx
@@ -1142,6 +1168,21 @@ fun FullScreenPlayer(
                     }
                 }
             )
+
+            if (showSkipSettings && currentSong != null) {
+                ModalBottomSheet(
+                    onDismissRequest = { showSkipSettings = false },
+                    dragHandle = { BottomSheetDefaults.DragHandle() },
+                    containerColor = artworkColors.primary.compositeOver(MaterialTheme.colorScheme.surfaceContainerHigh)
+                ) {
+                    SkipSettingsSheet(
+                        song = currentSong,
+                        viewModel = viewModel,
+                        artworkColors = artworkColors,
+                        onDismiss = { showSkipSettings = false }
+                    )
+                }
+            }
         }
     }
 }

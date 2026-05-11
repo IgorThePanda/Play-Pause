@@ -76,9 +76,25 @@ private fun PermissionBox(
 }
 
 @Composable
-private fun EmptyStateBox(searchQuery: String) {
+private fun EmptyStateBox(searchQuery: String, isRefreshing: Boolean) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(if (searchQuery.isEmpty()) "No items found." else "No matches found.")
+        if (isRefreshing) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(48.dp),
+                    strokeWidth = 4.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Scanning for music...",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            Text(if (searchQuery.isEmpty()) "No items found." else "No matches found.")
+        }
     }
 }
 
@@ -559,8 +575,8 @@ private fun MainLibraryContent(
         val contentPadding = PaddingValues(top = listTopPadding, bottom = bottomPadding, start = 16.dp, end = 16.dp)
         val scrollbarPadding = PaddingValues(bottom = bottomPadding)
 
-        if (filteredSongs.isEmpty() && hasPermission && !isRefreshing) {
-            EmptyStateBox(searchQuery)
+        if (filteredSongs.isEmpty() && hasPermission) {
+            EmptyStateBox(searchQuery, isRefreshing)
         } else if (!hasPermission) {
             PermissionBox(permissionLauncher)
         } else {
