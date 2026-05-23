@@ -8,18 +8,18 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
-import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.data.Playlist
 
 @Composable
@@ -29,25 +29,25 @@ fun PlaylistView(
     onCreatePlaylist: () -> Unit,
     albumArtMap: Map<Long, android.net.Uri?>,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(0.dp),
+    contentPadding: PaddingValues = PaddingValues(16.dp),
     columns: Int = 2
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
+        modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-        modifier = modifier.fillMaxSize()
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        items(playlists) { playlist ->
+        item {
+            CreatePlaylistCard(onClick = onCreatePlaylist)
+        }
+        items(playlists, key = { it.id }) { playlist ->
             PlaylistCard(
-                playlist = playlist, 
+                playlist = playlist,
                 onClick = { onPlaylistClick(playlist) },
                 albumArtMap = albumArtMap
             )
-        }
-        item {
-            CreatePlaylistCard(onClick = onCreatePlaylist)
         }
     }
 }
@@ -59,14 +59,14 @@ fun CreatePlaylistCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
     ) {
         Surface(
             modifier = Modifier
                 .aspectRatio(1f)
                 .fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
+            shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
         ) {
@@ -109,14 +109,14 @@ fun PlaylistCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
     ) {
         Surface(
             modifier = Modifier
                 .aspectRatio(1f)
                 .fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
+            shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             PlaylistCoverImage(

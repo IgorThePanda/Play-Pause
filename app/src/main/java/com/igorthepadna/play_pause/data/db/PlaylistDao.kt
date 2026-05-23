@@ -105,6 +105,9 @@ interface PlaylistDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylistSongs(playlistSongs: List<PlaylistSongEntity>)
 
+    @Query("UPDATE cached_songs SET lyrics = :lyrics WHERE id = :songId")
+    suspend fun updateSongLyrics(songId: Long, lyrics: String?)
+
     @Transaction
     @Query("SELECT * FROM playlists WHERE id = :playlistId")
     fun getPlaylistWithSongs(playlistId: String): Flow<PlaylistWithSongs?>
@@ -116,8 +119,14 @@ interface PlaylistDao {
     @androidx.room.Query("SELECT * FROM pinned_items ORDER BY addedAt DESC")
     fun getAllPinnedItems(): kotlinx.coroutines.flow.Flow<List<PinnedItemEntity>>
 
+    @androidx.room.Query("SELECT * FROM pinned_items")
+    suspend fun getAllPinnedItemsSync(): List<PinnedItemEntity>
+
     @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
     suspend fun insertPinnedItem(item: PinnedItemEntity)
+
+    @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun insertPinnedItems(items: List<PinnedItemEntity>)
 
     @androidx.room.Query("DELETE FROM pinned_items WHERE type = :type AND mediaId = :mediaId")
     suspend fun deletePinnedItem(type: String, mediaId: String)

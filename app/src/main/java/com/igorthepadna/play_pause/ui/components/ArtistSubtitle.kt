@@ -1,5 +1,6 @@
 package com.igorthepadna.play_pause.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,7 +20,8 @@ fun ArtistSubtitle(
     style: TextStyle = MaterialTheme.typography.bodySmall,
     mainColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     separatorColor: Color = mainColor.copy(alpha = 0.5f),
-    maxLines: Int = 1
+    maxLines: Int = 1,
+    onArtistClick: ((String) -> Unit)? = null
 ) {
     val artists = remember(artistText) { MusicRepository.splitArtists(artistText) }
     
@@ -35,7 +37,14 @@ fun ArtistSubtitle(
                     color = mainColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = if (index == 0) Modifier.weight(1f, fill = false) else Modifier
+                    modifier = (if (index == 0) Modifier.weight(1f, fill = false) else Modifier)
+                        .then(
+                            if (onArtistClick != null) {
+                                Modifier.clickable { onArtistClick(artist) }
+                            } else {
+                                Modifier
+                            }
+                        )
                 )
                 if (index < artists.size - 1) {
                     Text(
@@ -54,7 +63,13 @@ fun ArtistSubtitle(
             color = mainColor,
             maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
-            modifier = modifier
+            modifier = modifier.then(
+                if (onArtistClick != null) {
+                    Modifier.clickable { onArtistClick(artistText) }
+                } else {
+                    Modifier
+                }
+            )
         )
     }
 }

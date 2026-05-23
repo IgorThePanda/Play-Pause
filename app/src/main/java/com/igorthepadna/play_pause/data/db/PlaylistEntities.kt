@@ -99,10 +99,14 @@ data class PlaylistBackupV2(
 
 @Serializable
 data class FullBackupV2(
-    val playlists: List<PlaylistBackupV2>,
-    val playEvents: List<PlayEvent> = emptyList()
+    val playlists: List<PlaylistBackupV2> = emptyList(),
+    val playEvents: List<PlayEvent> = emptyList(),
+    val skipRules: List<SkipRuleEntity> = emptyList(),
+    val pinnedItems: List<PinnedItemEntity> = emptyList(),
+    val settings: Map<String, String> = emptyMap()
 )
 
+@Serializable
 @androidx.room.Entity(tableName = "pinned_items")
 data class PinnedItemEntity(
     @androidx.room.PrimaryKey(autoGenerate = true) val id: Int = 0,

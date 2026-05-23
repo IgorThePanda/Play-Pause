@@ -261,6 +261,7 @@ fun LyricLineView(
                 text = line.speaker.uppercase(),
                 style = MaterialTheme.typography.labelSmall,
                 color = speakerColor,
+                fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
         }
@@ -283,7 +284,9 @@ fun LyricLineView(
                         text = word.text,
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontSize = fontSize.sp,
-                            lineHeight = (fontSize * 1.4).sp
+                            fontWeight = if (isWordCurrentlyPlaying) FontWeight.Black else FontWeight.Bold,
+                            lineHeight = (fontSize * 1.4).sp,
+                            letterSpacing = (-1).sp
                         ),
                         color = Color.White,
                         modifier = Modifier
@@ -454,16 +457,17 @@ private fun ColumnScope.PlayerArtworkSection(
                                 contentPadding = PaddingValues(16.dp)
                             ) {
                                 item {
-            Text(
-                text = rawLyrics,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontSize = (lyricFontSize * 0.8f).sp,
-                    lineHeight = (lyricFontSize * 1.1).sp
-                ),
-                color = Color.White,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.clickable(onClick = onToggleLyrics)
-            )
+                                    Text(
+                                        text = rawLyrics,
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontSize = (lyricFontSize * 0.8f).sp,
+                                            fontWeight = FontWeight.Bold,
+                                            lineHeight = (lyricFontSize * 1.1).sp
+                                        ),
+                                        color = Color.White,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.clickable(onClick = onToggleLyrics)
+                                    )
                                 }
                             }
                         } else {
@@ -506,8 +510,10 @@ private fun PlayerSongInfoSection(
         ) {
             Text(
                 currentMediaItem?.mediaMetadata?.title?.toString() ?: "No Title",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = (-1).sp
+                ),
                 maxLines = 2,
                 lineHeight = 42.sp,
                 overflow = TextOverflow.Ellipsis,
@@ -523,12 +529,16 @@ private fun PlayerSongInfoSection(
                 }
             }
         }
-        val artistName = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist"
-        ArtistSubtitle(
-            artistText = artistName,
-            style = MaterialTheme.typography.titleLarge,
-            mainColor = artworkColors.secondary,
+        Text(
+            text = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist",
+            style = MaterialTheme.typography.titleLarge.copy(
+                color = artworkColors.secondary,
+                fontWeight = FontWeight.Bold
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.clickable {
+                val artistName = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist"
                 val splitArtists = MusicRepository.splitArtists(artistName)
                 if (splitArtists.size > 1) {
                     viewModel.showArtistSelection(splitArtists)
@@ -547,13 +557,10 @@ private fun PlayerProgressSection(
     isPlaying: Boolean,
     artworkColors: ArtworkColors,
     currentBitrate: String?,
-    viewModel: MainViewModel,
     onSeek: (Float) -> Unit,
     onDragStart: () -> Unit,
     onDragEnd: () -> Unit
 ) {
-    val showBitrateInfo by viewModel.showBitrateInfo.collectAsStateWithLifecycle()
-
     Column(modifier = Modifier.fillMaxWidth()) {
         SquigglySlider(
             value = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f,
@@ -576,44 +583,45 @@ private fun PlayerProgressSection(
             Text(
                 text = formatDuration(currentPosition),
                 style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
-            if (showBitrateInfo) {
-                val bitrateStr = currentBitrate ?: "Loading..."
-                
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .background(artworkColors.tertiary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-                        .border(1.dp, artworkColors.tertiary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
-                    val qualityIcon = when {
-                        bitrateValue >= 1000 -> Icons.Rounded.Album
-                        bitrateValue >= 256 -> Icons.Rounded.HighQuality
-                        else -> Icons.Rounded.Sd
-                    }
-                    Icon(
-                        imageVector = qualityIcon, 
-                        contentDescription = null, 
-                        modifier = Modifier.size(16.dp), 
-                        tint = artworkColors.tertiary
-                    )
-                    Text(
-                        text = bitrateStr.uppercase(), 
-                        style = MaterialTheme.typography.labelSmall, 
-                        color = artworkColors.tertiary,
-                        letterSpacing = 0.5.sp
-                    )
+            val bitrateStr = currentBitrate ?: "Loading..."
+            
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .background(artworkColors.tertiary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                    .border(1.dp, artworkColors.tertiary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
+                val qualityIcon = when {
+                    bitrateValue >= 1000 -> Icons.Rounded.Album
+                    bitrateValue >= 256 -> Icons.Rounded.HighQuality
+                    else -> Icons.Rounded.Sd
                 }
+                Icon(
+                    imageVector = qualityIcon, 
+                    contentDescription = null, 
+                    modifier = Modifier.size(16.dp), 
+                    tint = artworkColors.tertiary
+                )
+                Text(
+                    text = bitrateStr.uppercase(), 
+                    style = MaterialTheme.typography.labelSmall, 
+                    fontWeight = FontWeight.Black, 
+                    color = artworkColors.tertiary,
+                    letterSpacing = 0.5.sp
+                )
             }
 
             Text(
                 text = if (showRemainingTime) "-${formatDuration(duration - currentPosition)}" else formatDuration(duration),
                 style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.clickable { showRemainingTime = !showRemainingTime }
             )
@@ -713,8 +721,7 @@ private fun PlayerAdditionalControls(
     onAddClick: () -> Unit,
     onMoreClick: () -> Unit,
     isSkipModeEnabled: Boolean,
-    onToggleSkipMode: (Boolean) -> Unit,
-    onSkipSettingsClick: () -> Unit
+    onToggleSkipMode: () -> Unit
 ) {
     Surface(
         shape = CircleShape,
@@ -757,17 +764,14 @@ private fun PlayerAdditionalControls(
                     tint = if (isLyricsVisible) artworkColors.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onAddClick) { Icon(Icons.Rounded.Add, null) }
-            IconButton(onClick = { onToggleSkipMode(!isSkipModeEnabled) }) {
+            IconButton(onClick = onToggleSkipMode) {
                 Icon(
-                    if (isSkipModeEnabled) Icons.Rounded.FastForward else Icons.Rounded.FastForward,
+                    Icons.Rounded.FastForward,
                     null,
                     tint = if (isSkipModeEnabled) artworkColors.tertiary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 )
             }
-            IconButton(onClick = onSkipSettingsClick) {
-                Icon(Icons.Rounded.SettingsBackupRestore, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            IconButton(onClick = onAddClick) { Icon(Icons.Rounded.Add, null) }
             IconButton(onClick = onMoreClick) { Icon(Icons.Rounded.MoreHoriz, null) }
         }
     }
@@ -782,7 +786,6 @@ private fun PlayerQueueSheet(
     isQueueVisible: Boolean,
     artworkColors: ArtworkColors,
     player: Player,
-    allSkipRules: List<com.igorthepadna.play_pause.data.db.SkipRuleEntity> = emptyList(),
     onToggleQueue: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragStopped: suspend kotlinx.coroutines.CoroutineScope.(Float) -> Unit
@@ -823,18 +826,18 @@ private fun PlayerQueueSheet(
                     Text(
                         "Queue",
                         style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = queueTextAlpha)
                     )
                 }
             }
             Box(modifier = Modifier.weight(1f)) {
-                QueueContent(player, artworkColors, allSkipRules)
+                QueueContent(player, artworkColors)
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullScreenPlayer(
     player: Player, 
@@ -863,7 +866,7 @@ fun FullScreenPlayer(
     val queueOffsetY = remember { Animatable(closedValue) }
     val isQueueVisible by remember { derivedStateOf { queueOffsetY.value < closedValue - 10f } }
 
-    val isLyricsVisible by viewModel.isLyricsOnCover.collectAsStateWithLifecycle()
+    var isLyricsVisible by remember { mutableStateOf(false) }
     val rawLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
     
     val parsedLyrics = remember(rawLyrics, offsetY) { 
@@ -876,7 +879,6 @@ fun FullScreenPlayer(
     val lyricLineSpacing by viewModel.lyricLineSpacing.collectAsStateWithLifecycle()
 
     val isSkipModeEnabled by viewModel.isSkipModeEnabled.collectAsStateWithLifecycle()
-    var showSkipSettings by remember { mutableStateOf(false) }
 
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var currentPosition by remember { mutableLongStateOf(player.currentPosition) }
@@ -909,25 +911,21 @@ fun FullScreenPlayer(
 
     val lyricsListState = rememberLazyListState()
 
-    LaunchedEffect(currentLyricIndex, isLyricsVisible) {
+    LaunchedEffect(currentLyricIndex) {
         if (isLyricsVisible && currentLyricIndex != -1) {
-            if (lyricsListState.firstVisibleItemIndex != currentLyricIndex) {
-                lyricsListState.animateScrollToItem(currentLyricIndex)
-            }
+            lyricsListState.animateScrollToItem(currentLyricIndex)
         }
     }
 
     val isAnyOverlayVisible by remember {
         derivedStateOf {
-            isLyricsVisible || isQueueVisible || offsetY < -1f || showSkipSettings
+            isLyricsVisible || isQueueVisible || offsetY < -1f
         }
     }
 
     BackHandler(enabled = isAnyOverlayVisible, onBack = {
-        if (showSkipSettings) {
-            showSkipSettings = false
-        } else if (isLyricsVisible) {
-            viewModel.setLyricsOnCover(false)
+        if (isLyricsVisible) {
+            isLyricsVisible = false
         } else if (isQueueVisible) {
             scope.launch {
                 queueOffsetY.animateTo(closedValue, spring(stiffness = Spring.StiffnessLow))
@@ -980,21 +978,21 @@ fun FullScreenPlayer(
 
     val artScale by animateFloatAsState(
         targetValue = when {
-            isLyricsVisible -> 1.12f 
-            isPlaying -> 1.08f
+            isLyricsVisible -> 1.06f 
+            isPlaying -> 1.03f
             else -> 1.0f
         },
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
         label = "art_scale"
     )
     
     val artCorner by animateDpAsState(
         targetValue = when {
-            isLyricsVisible -> 12.dp 
-            isPlaying -> 24.dp
-            else -> 64.dp
+            isLyricsVisible -> 24.dp 
+            isPlaying -> 32.dp
+            else -> 48.dp
         },
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
         label = "art_corner"
     )
 
@@ -1063,7 +1061,7 @@ fun FullScreenPlayer(
                         player.seekTo(timestamp)
                         currentPosition = timestamp
                     },
-                    onToggleLyrics = { viewModel.setLyricsOnCover(false) }
+                    onToggleLyrics = { isLyricsVisible = false }
                 )
 
                 Spacer(modifier = Modifier.weight(2f))
@@ -1088,7 +1086,6 @@ fun FullScreenPlayer(
                     isPlaying = isPlaying,
                     artworkColors = artworkColors,
                     currentBitrate = currentBitrate,
-                    viewModel = viewModel,
                     onSeek = {
                         val newPos = (it * duration).toLong()
                         player.seekTo(newPos)
@@ -1103,7 +1100,10 @@ fun FullScreenPlayer(
                 PlayerPlaybackControls(
                     isPlaying = isPlaying,
                     onTogglePlay = { if (isPlaying) player.pause() else player.play() },
-                    onSkipPrevious = { viewModel.skipPrevious(player) },
+                    onSkipPrevious = { 
+                        if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem()
+                        else player.seekTo(0)
+                    },
                     onSkipNext = { player.seekToNext() },
                     artworkColors = artworkColors,
                     onPositioned = { buttonCenter = it }
@@ -1115,18 +1115,15 @@ fun FullScreenPlayer(
                     player = player,
                     artworkColors = artworkColors,
                     isLyricsVisible = isLyricsVisible,
-                    onToggleLyrics = { viewModel.setLyricsOnCover(!isLyricsVisible) },
+                    onToggleLyrics = { isLyricsVisible = !isLyricsVisible },
                     onAddClick = { currentSong?.let { onAddClick(it) } },
                     onMoreClick = { currentSong?.let { onMoreClick(it) } },
                     isSkipModeEnabled = isSkipModeEnabled,
-                    onToggleSkipMode = { viewModel.setSkipModeEnabled(it) },
-                    onSkipSettingsClick = { showSkipSettings = true }
+                    onToggleSkipMode = { viewModel.setSkipModeEnabled(!isSkipModeEnabled) }
                 )
 
                 Spacer(modifier = Modifier.height(64.dp))
             }
-
-            val allSkipRules by viewModel.allSkipRules.collectAsStateWithLifecycle()
 
             PlayerQueueSheet(
                 queueOffsetY = queueOffsetY,
@@ -1136,7 +1133,6 @@ fun FullScreenPlayer(
                 isQueueVisible = isQueueVisible,
                 artworkColors = artworkColors,
                 player = player,
-                allSkipRules = allSkipRules,
                 onToggleQueue = {
                     scope.launch {
                         val target = if (isQueueVisible) closedValue else topPaddingPx
@@ -1168,21 +1164,6 @@ fun FullScreenPlayer(
                     }
                 }
             )
-
-            if (showSkipSettings && currentSong != null) {
-                ModalBottomSheet(
-                    onDismissRequest = { showSkipSettings = false },
-                    dragHandle = { BottomSheetDefaults.DragHandle() },
-                    containerColor = artworkColors.primary.compositeOver(MaterialTheme.colorScheme.surfaceContainerHigh)
-                ) {
-                    SkipSettingsSheet(
-                        song = currentSong,
-                        viewModel = viewModel,
-                        artworkColors = artworkColors,
-                        onDismiss = { showSkipSettings = false }
-                    )
-                }
-            }
         }
     }
 }

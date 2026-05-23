@@ -28,7 +28,9 @@ import java.util.Random
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var skipJob: Job? = null
+    private var rulesJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var currentSongRules = listOf<SkipRuleEntity>()
 
     companion object {
         private const val CUSTOM_COMMAND_TOGGLE_SHUFFLE = "TOGGLE_SHUFFLE"
@@ -136,6 +138,28 @@ class PlaybackService : MediaSessionService() {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 if (mediaItem != null) {
                     clearPlayNextExtra(player, player.currentMediaItemIndex)
+                    
+                    // Immediate skip check
+                    val prefs = getSharedPreferences("play_pause_prefs", MODE_PRIVATE)
+                    val isSkipEnabled = prefs.getBoolean("skip_mode_enabled", false)
+                    if (isSkipEnabled) {
+                        serviceScope.launch {
+                            val db = AppDatabase.getDatabase(this@PlaybackService)
+                            val rules = withContext(Dispatchers.IO) {
+                                db.skipRuleDao().getRulesForSongSync(mediaItem.mediaId)
+                            }
+                            currentSongRules = rules
+                            if (rules.any { it.type == SkipType.ENTIRE_SONG }) {
+                                if (player.hasNextMediaItem()) {
+                                    player.seekToNext()
+                                } else {
+                                    player.pause()
+                                }
+                            }
+                        }
+                    } else {
+                        currentSongRules = emptyList()
+                    }
                 }
                 if (player.shuffleModeEnabled) {
                     fixShuffleOrder(player)
@@ -163,51 +187,25 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun startSkipPoller(player: Player) {
-        val db = AppDatabase.getDatabase(this)
         val prefs = getSharedPreferences("play_pause_prefs", MODE_PRIVATE)
         
-        var lastSkippedMediaId: String? = null
-
         skipJob?.cancel()
         skipJob = serviceScope.launch {
             while (isActive) {
                 val isSkipEnabled = prefs.getBoolean("skip_mode_enabled", false)
-                if (isSkipEnabled && player.playbackState == Player.STATE_READY) {
-                    val mediaId = player.currentMediaItem?.mediaId
-                    if (mediaId != null && mediaId != lastSkippedMediaId) {
-                        val rules = withContext(Dispatchers.IO) {
-                            db.skipRuleDao().getRulesForSongSync(mediaId)
-                        }
-                        
-                        val currentPos = player.currentPosition
-                        
-                        for (rule in rules) {
-                            when (rule.type) {
-                                SkipType.ENTIRE_SONG -> {
-                                    lastSkippedMediaId = mediaId
-                                    withContext(Dispatchers.Main) {
-                                        if (player.hasNextMediaItem()) {
-                                            player.seekToNext()
-                                        } else {
-                                            player.pause()
-                                        }
-                                    }
-                                    break
-                                }
-                                SkipType.SECTION -> {
-                                    if (currentPos in rule.startTime until (rule.endTime - 100)) {
-                                        withContext(Dispatchers.Main) {
-                                            player.seekTo(rule.endTime)
-                                        }
-                                    }
+                if (isSkipEnabled && player.playbackState == Player.STATE_READY && player.playWhenReady) {
+                    val currentPos = player.currentPosition
+                    for (rule in currentSongRules) {
+                        if (rule.type == SkipType.SECTION) {
+                            if (currentPos in rule.startTime until (rule.endTime - 50)) {
+                                withContext(Dispatchers.Main) {
+                                    player.seekTo(rule.endTime)
                                 }
                             }
                         }
                     }
-                } else if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                    lastSkippedMediaId = null
                 }
-                delay(300)
+                delay(150) // Faster polling for sections
             }
         }
     }

@@ -8,6 +8,9 @@ interface SkipRuleDao {
     @Query("SELECT * FROM skip_rules")
     fun getAllRules(): Flow<List<SkipRuleEntity>>
 
+    @Query("SELECT * FROM skip_rules")
+    suspend fun getAllRulesSync(): List<SkipRuleEntity>
+
     @Query("SELECT * FROM skip_rules WHERE mediaId = :mediaId")
     fun getRulesForSong(mediaId: String): Flow<List<SkipRuleEntity>>
 

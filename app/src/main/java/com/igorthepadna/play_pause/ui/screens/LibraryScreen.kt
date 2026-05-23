@@ -23,6 +23,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
@@ -72,6 +75,20 @@ private fun PermissionBox(
             }
             permissionLauncher.launch(permissions)
         }) { Text("Grant Permissions") }
+    }
+}
+
+@Composable
+private fun CounterBadge(text: String, modifier: Modifier = Modifier) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = RoundedCornerShape(16.dp),
+        modifier = modifier.height(32.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+            Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black)
+        }
     }
 }
 
@@ -575,6 +592,15 @@ private fun MainLibraryContent(
         val contentPadding = PaddingValues(top = listTopPadding, bottom = bottomPadding, start = 16.dp, end = 16.dp)
         val scrollbarPadding = PaddingValues(bottom = bottomPadding)
 
+        val countText = when (filter) {
+            LibraryFilter.SONGS -> "${filteredSongs.size} Songs"
+            LibraryFilter.ALBUMS -> "${sortedAlbums.size} Albums"
+            LibraryFilter.ARTISTS -> "${sortedArtists.size} Artists"
+            LibraryFilter.GENRES -> "${genres.size} Genres"
+            LibraryFilter.PLAYLISTS -> "${playlists.size} Playlists"
+            else -> ""
+        }
+
         if (filteredSongs.isEmpty() && hasPermission) {
             EmptyStateBox(searchQuery, isRefreshing)
         } else if (!hasPermission) {
@@ -594,6 +620,11 @@ private fun MainLibraryContent(
                         verticalArrangement = Arrangement.spacedBy(24.dp),
                         modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                     ) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), contentAlignment = Alignment.Center) {
+                                CounterBadge(countText)
+                            }
+                        }
                         items(
                             items = sortedAlbums, 
                             key = { it.id },
@@ -682,6 +713,11 @@ private fun MainLibraryContent(
                         verticalArrangement = Arrangement.spacedBy(24.dp),
                         modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                     ) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), contentAlignment = Alignment.Center) {
+                                CounterBadge(countText)
+                            }
+                        }
                         items(
                             items = sortedArtists, 
                             key = { it.name },
@@ -756,6 +792,11 @@ private fun MainLibraryContent(
                         verticalArrangement = Arrangement.spacedBy(24.dp),
                         modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                     ) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), contentAlignment = Alignment.Center) {
+                                CounterBadge(countText)
+                            }
+                        }
                         items(playlists) { playlist ->
                             val isPlaying = remember(playlist.songs, currentPlayingId) {
                                 playlist.songs.contains(currentPlayingId)
@@ -855,6 +896,11 @@ private fun MainLibraryContent(
                         verticalArrangement = Arrangement.spacedBy(24.dp),
                         modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                     ) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), contentAlignment = Alignment.Center) {
+                                CounterBadge(countText)
+                            }
+                        }
                         items(genres) { genre ->
                             val isPlaying = currentPlayingSong?.genre == genre
                             val count = remember(filteredSongs, genre) { filteredSongs.count { it.genre == genre } }
@@ -948,6 +994,11 @@ private fun MainLibraryContent(
                             contentPadding = contentPadding,
                             modifier = Modifier.fillMaxSize().verticalScrollbar(listState, padding = scrollbarPadding)
                         ) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), contentAlignment = Alignment.Center) {
+                                    CounterBadge(countText)
+                                }
+                            }
                             lazyItemsIndexed(
                                 items = filteredSongs, 
                                 key = { _: Int, song: Song -> song.id },

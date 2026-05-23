@@ -19,7 +19,6 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,11 +53,6 @@ private fun SongArtwork(
 ) {
     val context = LocalContext.current
     
-    // Fallback chain logic:
-    // 1. If it's an unnumbered track, try the song's own URI (embedded art) first.
-    // 2. Use the explicitly provided art if available (passed from album context).
-    // 3. Fallback to the album's artwork URI.
-    // 4. Try the song's URI as a last resort.
     val artworkChain = remember(song.id, providedArtworkUri, hasTrackInfo) {
         val list = mutableListOf<android.net.Uri>()
         if (!hasTrackInfo) {
@@ -83,21 +77,39 @@ private fun SongArtwork(
                     .build(),
                 contentDescription = null,
                 modifier = modifier,
-                contentScale = ContentScale.Crop,
-                onState = { state ->
-                    if (state is AsyncImagePainter.State.Error) {
-                        loadIndex++
-                    }
-                }
+                contentScale = ContentScale.Crop
             ) {
                 val state = painter.state
-                if (state is AsyncImagePainter.State.Success) {
-                    androidx.compose.foundation.Image(
-                        painter = painter,
-                        contentDescription = contentDescription,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = contentScale
-                    )
+                when (state) {
+                    is AsyncImagePainter.State.Loading -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // CircularProgressIndicator is much lighter than the morphing LoadingIndicator
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(size.dp / 10),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+                    is AsyncImagePainter.State.Success -> {
+                        androidx.compose.foundation.Image(
+                            painter = painter,
+                            contentDescription = contentDescription,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = contentScale
+                        )
+                    }
+                    is AsyncImagePainter.State.Error -> {
+                        SideEffect {
+                            loadIndex++
+                        }
+                    }
+                    else -> {}
                 }
             }
         }
@@ -128,7 +140,7 @@ fun UniversalSongItem(
     modifier: Modifier = Modifier,
     onNavigateToArtist: ((String) -> Unit)? = null,
     showArtist: Boolean = true,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp),
+    shape: androidx.compose.ui.graphics.Shape = MaterialTheme.shapes.medium,
     label: String? = null,
     secondaryLabel: String? = null,
     artworkUri: android.net.Uri? = null,
@@ -210,13 +222,12 @@ fun UniversalSongItem(
                 modifier = Modifier.padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // ALWAYS leading Content (Icon, Custom or Artwork)
                 if (leadingContent != null) {
                     Surface(
                         modifier = Modifier
                             .padding(end = 12.dp)
                             .size(32.dp),
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = Color.Transparent
                     ) {
                         leadingContent()
@@ -226,7 +237,7 @@ fun UniversalSongItem(
                         modifier = Modifier
                             .padding(end = 12.dp)
                             .size(32.dp),
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                     ) {
@@ -242,12 +253,12 @@ fun UniversalSongItem(
                 } else {
                     SongArtwork(
                         song = song,
-                        hasTrackInfo = false, // Universal tile ignores track numbers
+                        hasTrackInfo = false,
                         providedArtworkUri = artworkUri,
                         modifier = Modifier
                             .padding(end = 12.dp)
                             .size(32.dp)
-                            .clip(RoundedCornerShape(6.dp)),
+                            .clip(RoundedCornerShape(8.dp)),
                         size = 80
                     )
                 }
@@ -347,7 +358,7 @@ fun CompactSongItem(
     modifier: Modifier = Modifier,
     onNavigateToArtist: ((String) -> Unit)? = null,
     showArtist: Boolean = true,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp),
+    shape: androidx.compose.ui.graphics.Shape = MaterialTheme.shapes.medium,
     label: String? = null,
     secondaryLabel: String? = null,
     artworkUri: android.net.Uri? = null,
@@ -416,7 +427,7 @@ fun PlaylistSelectionSheet(
                 contentDescription = null,
                 modifier = Modifier
                     .size(64.dp)
-                    .clip(RoundedCornerShape(16.dp)),
+                    .clip(MaterialTheme.shapes.medium),
                 contentScale = ContentScale.Crop,
                 error = painterResource(R.drawable.ic_launcher_foreground)
             )
@@ -456,7 +467,7 @@ fun PlaylistSelectionSheet(
             Button(
                 onClick = onFavoriteClick,
                 modifier = Modifier.weight(1f).height(64.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.large,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isFavorite) artworkColors.secondary else artworkColors.secondary.copy(alpha = 0.1f),
                     contentColor = if (isFavorite) contentColorFor(artworkColors.secondary) else artworkColors.secondary
@@ -474,7 +485,7 @@ fun PlaylistSelectionSheet(
             Button(
                 onClick = { showCreateDialog = true },
                 modifier = Modifier.weight(1f).height(64.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.large,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = artworkColors.primary,
                     contentColor = contentColorFor(artworkColors.primary)
@@ -507,7 +518,7 @@ fun PlaylistSelectionSheet(
             Surface(
                 onClick = { onTogglePlaylist(playlist.id, isAlreadyIn) },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                shape = RoundedCornerShape(20.dp),
+                shape = MaterialTheme.shapes.medium,
                 color = if (isAlreadyIn) Color.Red.copy(alpha = 0.05f) else artworkColors.secondary.copy(alpha = 0.05f),
                 border = BorderStroke(1.dp, if (isAlreadyIn) Color.Red.copy(alpha = 0.1f) else artworkColors.secondary.copy(alpha = 0.1f))
             ) {
@@ -550,7 +561,7 @@ fun PlaylistSelectionSheet(
                     value = newPlaylistName,
                     onValueChange = { newPlaylistName = it },
                     label = { Text("Playlist Name") },
-                    shape = RoundedCornerShape(16.dp),
+                    shape = MaterialTheme.shapes.medium,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -578,7 +589,7 @@ fun PlaylistSelectionSheet(
                     Text("Cancel")
                 }
             },
-            shape = RoundedCornerShape(28.dp)
+            shape = MaterialTheme.shapes.extraLarge
         )
     }
 }

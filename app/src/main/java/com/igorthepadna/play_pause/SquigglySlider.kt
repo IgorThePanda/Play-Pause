@@ -49,22 +49,28 @@ fun SquigglySlider(
     val currentAmplitude by animateFloatAsState(
         targetValue = if (isPlaying) maxAmplitudePx else 0f,
         animationSpec = spring(
-            stiffness = Spring.StiffnessLow, 
-            dampingRatio = Spring.DampingRatioMediumBouncy
+            stiffness = Spring.StiffnessMediumLow, 
+            dampingRatio = Spring.DampingRatioHighBouncy
         ),
         label = "SquiggleAmplitude"
     )
 
-    LaunchedEffect(isPlaying) {
-        if (isPlaying) {
-            var lastTime = withFrameNanos { it }
-            while (true) {
-                val currentTime = withFrameNanos { it }
-                val deltaTime = (currentTime - lastTime) / 1_000_000_000f
-                phase += deltaTime * 5f 
-                lastTime = currentTime
-                yield()
+    val phaseSpeed by animateFloatAsState(
+        targetValue = if (isPlaying) 6f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessVeryLow),
+        label = "SquigglePhaseSpeed"
+    )
+
+    LaunchedEffect(Unit) {
+        var lastTime = withFrameNanos { it }
+        while (true) {
+            val currentTime = withFrameNanos { it }
+            val deltaTime = (currentTime - lastTime) / 1_000_000_000f
+            if (phaseSpeed > 0f) {
+                phase += deltaTime * phaseSpeed
             }
+            lastTime = currentTime
+            yield()
         }
     }
 

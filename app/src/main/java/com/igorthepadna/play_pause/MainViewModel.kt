@@ -34,6 +34,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlinx.serialization.Serializable
@@ -80,7 +81,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _allAlbums = MutableStateFlow<List<Album>>(emptyList())
     val allAlbums = _allAlbums.asStateFlow()
-    
+
     private val _allArtists = MutableStateFlow<List<Artist>>(emptyList())
     val allArtists = _allArtists.asStateFlow()
 
@@ -224,6 +225,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val skipRuleDao = AppDatabase.getDatabase(application).skipRuleDao()
     val allSkipRules: StateFlow<List<SkipRuleEntity>> = skipRuleDao.getAllRules().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList<SkipRuleEntity>())
 
+    val currentSongRules = combine(allSkipRules, currentPlayingId) { rules, id ->
+        rules.filter { it.mediaId == id.toString() }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _artistSelectionDialog = MutableStateFlow<List<String>?>(null)
     val artistSelectionDialog = _artistSelectionDialog.asStateFlow()
 
@@ -353,7 +358,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val parts = value.split("|")
             ViewModeSettings(
                 viewMode = runCatching { CategoryViewMode.valueOf(parts[0]) }.getOrDefault(CategoryViewMode.DETAILED),
-                gridSizeMode = runCatching { 
+                gridSizeMode = runCatching {
                     val p = parts.getOrNull(1)
                     if (p?.toIntOrNull() != null) {
                         when(p.toInt()) {
@@ -434,16 +439,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val sortedAlbums = combine(_allAlbums, debouncedSearchQuery, _tabSortSettings) { albums, query, settings ->
         val currentSettings = settings[LibraryFilter.ALBUMS] ?: TabSortSettings()
-        
+
         val list = if (query.isBlank()) {
             albums
         } else {
-            albums.filter { 
-                it.title.contains(query, ignoreCase = true) || 
+            albums.filter {
+                it.title.contains(query, ignoreCase = true) ||
                 it.artist.contains(query, ignoreCase = true)
             }
         }
-        
+
         when (currentSettings.sortType) {
             SortType.TITLE -> if (currentSettings.sortOrder == SortOrder.ASC) list.sortedBy { it.title } else list.sortedByDescending { it.title }
             SortType.ARTIST -> if (currentSettings.sortOrder == SortOrder.ASC) list.sortedBy { it.artist } else list.sortedByDescending { it.artist }
@@ -454,13 +459,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val sortedArtists = combine(_allArtists, debouncedSearchQuery, _tabSortSettings) { artists, query, settings ->
         val currentSettings = settings[LibraryFilter.ARTISTS] ?: TabSortSettings()
-        
+
         var list = if (query.isBlank()) artists else artists.filter { artist ->
             artist.name.contains(query, ignoreCase = true) ||
             artist.songs.any { it.title.contains(query, ignoreCase = true) } ||
             artist.featuredSongs.any { it.title.contains(query, ignoreCase = true) }
         }
-        
+
         if (currentSettings.showOnlyAlbumArtists) {
             list = list.filter { it.albumCount > 1 || (it.albumCount == 1 && it.songs.size > 2) }
         }
@@ -509,7 +514,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val _selectionStack = MutableStateFlow<List<Selection>>(
-        runCatching { 
+        runCatching {
             Json.decodeFromString<List<Selection>>(prefs.getString("selection_stack", "[]")!!)
         }.getOrDefault(emptyList())
     )
@@ -849,6 +854,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putString("view_mode_$key", "${settings.viewMode.name}|${settings.gridSizeMode.name}").apply()
     }
 
+    private var lyricIndexingJob: Job? = null
+
     fun loadSongs(refresh: Boolean = false, fromMediaStore: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             val onlyMusic = _scanOnlyMusicFolder.value
@@ -870,6 +877,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _allArtists.value = artists
 
             _isRefreshing.value = false
+
+            // 2. Index lyrics in background for tracks that don't have them
+            startIndexingLyrics(songs)
+        }
+    }
+
+    private fun startIndexingLyrics(songs: List<Song>) {
+        lyricIndexingJob?.cancel()
+        lyricIndexingJob = viewModelScope.launch(Dispatchers.IO) {
+            songs.forEach { song ->
+                if (song.lyrics == null) {
+                    val lyrics = repository.getLyrics(song.path)
+                    if (lyrics != null) {
+                        repository.updateSongLyrics(song.id, lyrics)
+                        // Update current state flow to reflect new lyrics for filtering
+                        _songs.value = _songs.value.map { 
+                            if (it.id == song.id) it.copy(lyrics = lyrics) else it 
+                        }
+                    } else {
+                        // Mark as checked but no lyrics found to avoid re-scanning
+                        repository.updateSongLyrics(song.id, "")
+                        _songs.value = _songs.value.map { 
+                            if (it.id == song.id) it.copy(lyrics = "") else it 
+                        }
+                    }
+                }
+                yield() // Be nice to other coroutines
+            }
         }
     }
 
@@ -887,14 +922,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             _isLyricsLoading.value = true
-            
+
             // Only clear if the song has actually changed
             if (mediaId != lastLoadedMediaId) {
                 _currentLyrics.value = null
                 _currentBitrate.value = null
                 lastLoadedMediaId = mediaId
             }
-            
+
             launch {
                 if (_currentLyrics.value == null) {
                     _currentLyrics.value = repository.getLyrics(song.path)
@@ -905,7 +940,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _currentBitrate.value = repository.getDetailedBitrate(song.path)
                 }
             }
-            
+
             _isLyricsLoading.value = false
         }
     }
@@ -928,16 +963,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val finalRepeatMode = if (_repeatByDefault.value) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
 
         // Quick check for queue stability
-        val isSameQueue = player.mediaItemCount == songs.size && 
+        val isSameQueue = player.mediaItemCount == songs.size &&
                          safeStartIndex < player.mediaItemCount &&
                          player.getMediaItemAt(safeStartIndex).mediaId == songs[safeStartIndex].id.toString()
-        
+
         if (isSameQueue) {
             player.seekTo(safeStartIndex, 0L)
             player.play()
             player.shuffleModeEnabled = finalShuffle
             player.repeatMode = finalRepeatMode
-            
+
             if (_lyricsByDefault.value) {
                 setPlayerFullScreen(true)
                 setLyricsOnCover(true)
@@ -948,7 +983,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Immediate playback of the clicked song for zero-latency feedback
         val targetSong = songs[safeStartIndex]
         val targetMediaItem = targetSong.toMediaItem()
-        
+
         player.stop()
         player.clearMediaItems()
         player.setMediaItem(targetMediaItem)
@@ -973,7 +1008,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     withContext(Dispatchers.Default) {
                         val afterItems = afterSongs.map { it.toMediaItem() }
                         val beforeItems = beforeSongs.map { it.toMediaItem() }
-                        
+
                         withContext(Dispatchers.Main) {
                             if (afterItems.isNotEmpty()) {
                                 player.addMediaItems(afterItems)
@@ -994,7 +1029,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = _player.value ?: return
         val currentIndex = if (player.mediaItemCount == 0) -1 else player.currentMediaItemIndex
         val totalCount = player.mediaItemCount
-        
+
         var insertIndex = currentIndex + 1
         
         if (_playNextBehavior.value == PlayNextBehavior.BOTTOM && currentIndex != -1) {
@@ -1053,7 +1088,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             // Optimistically remove from UI
             _songs.value = _songs.value.filter { it.id != song.id }
-            
+
             // Stop/Skip if current song is being deleted
             val p = _player.value
             if (p?.currentMediaItem?.mediaId == song.id.toString()) {
@@ -1070,11 +1105,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onResult(true)
             } else {
                 val exception = result.exceptionOrNull()
-                
+
                 // If failed for a non-security reason, we might need to restore it
-                val isSecurityException = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && exception is RecoverableSecurityException) || 
+                val isSecurityException = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && exception is RecoverableSecurityException) ||
                                           (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && exception is SecurityException)
-                
+
                 if (!isSecurityException) {
                     loadSongs() // Restore list
                 }
@@ -1101,7 +1136,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (playlists.none { it.id == favoritesId }) {
                 repository.createPlaylist("Favorites", favoritesId, isFavorite = true)
             }
-            
+
             val playlistSongs = repository.getSongsForPlaylist(favoritesId).first()
             if (playlistSongs.contains(songId)) {
                 repository.removeSongFromPlaylist(favoritesId, songId)
@@ -1180,7 +1215,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val now = System.currentTimeMillis()
                     val delta = now - lastTimerTick
                     lastTimerTick = now
-                    
+
                     val currentId = player.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L
                     if (currentId != -1L && currentId != lastRecordedMediaId) {
                         currentSongPlayTime += delta
@@ -1213,6 +1248,92 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun getTotalPlayCount() = repository.getTotalPlayCount()
     fun getDailyPlayCounts(since: Long) = repository.getDailyPlayCounts(since)
     fun clearStats() = viewModelScope.launch { repository.clearStats() }
+
+    private fun getAllSettings(): Map<String, String> {
+        val all = prefs?.all ?: return emptyMap()
+        return all.mapValues { it.value.toString() }
+    }
+
+    private fun applySettings(settings: Map<String, String>) {
+        val editor = prefs?.edit() ?: return
+        settings.forEach { (key, value) ->
+            // Try to detect type or just store as string and let individual loaders handle it
+            // Most of our settings are Boolean, Float, or Int.
+            when {
+                key == "navbar_order" || key == "hub_order" -> editor.putString(key, value)
+                value == "true" || value == "false" -> editor.putBoolean(key, value.toBoolean())
+                value.contains(".") -> value.toFloatOrNull()?.let { editor.putFloat(key, it) }
+                else -> value.toIntOrNull()?.let { editor.putInt(key, it) } ?: editor.putString(key, value)
+            }
+        }
+        editor.apply()
+        
+        // Trigger re-load of all preferences into StateFlows
+        // This is a bit manual since we have many StateFlows
+        _themeMode.value = ThemeMode.valueOf(prefs.getString("theme_mode", ThemeMode.AUTO.name)!!)
+        _colorSchemeType.value = ColorSchemeType.valueOf(prefs.getString("color_scheme_type", ColorSchemeType.DYNAMIC.name)!!)
+        _useArtworkAccent.value = prefs.getBoolean("use_artwork_accent", true)
+        _showBitrateInfo.value = prefs.getBoolean("show_bitrate_info", true)
+        _navBarAtTop.value = prefs.getBoolean("nav_bar_at_top", false)
+        _gaplessPlayback.value = prefs.getBoolean("gapless_playback", true)
+        _scanOnlyMusicFolder.value = prefs.getBoolean("scan_only_music", false)
+        _lyricFontSize.value = prefs.getFloat("lyric_font_size", 28f)
+        _lyricInactiveAlpha.value = prefs.getFloat("lyric_inactive_alpha", 0.4f)
+        _lyricActiveScale.value = prefs.getFloat("lyric_active_scale", 1.15f)
+        _lyricLineSpacing.value = prefs.getFloat("lyric_line_spacing", 16f)
+        _showLyricsProgress.value = prefs.getBoolean("show_lyrics_progress", true)
+        _lyricAlignmentCenter.value = prefs.getBoolean("lyric_alignment_center", true)
+        _shuffleByDefault.value = prefs.getBoolean("shuffle_by_default", false)
+        _repeatByDefault.value = prefs.getBoolean("repeat_by_default", false)
+        _resetOnPrevious.value = prefs.getBoolean("reset_on_previous", true)
+        _lyricsByDefault.value = prefs.getBoolean("lyrics_by_default", false)
+        _isSkipModeEnabled.value = prefs.getBoolean("is_skip_mode_enabled", true)
+
+        // Specifically refresh list-based settings
+        _navBarOrder.value = prefs.getString("navbar_order", null)?.split(",")?.mapNotNull { name ->
+            runCatching { LibraryFilter.valueOf(name) }.getOrNull()
+        } ?: LibraryFilter.entries
+
+        _hubOrder.value = prefs.getString("hub_order", null)?.split(",")?.mapNotNull { name ->
+            runCatching { com.igorthepadna.play_pause.data.HubFilter.valueOf(name) }.getOrNull()
+        } ?: com.igorthepadna.play_pause.data.HubFilter.entries
+    }
+
+    fun exportAllData(outputStream: OutputStream) {
+        viewModelScope.launch {
+            val settings = getAllSettings()
+            repository.exportAllData(outputStream, settings)
+        }
+    }
+
+    fun importAllData(inputStream: InputStream) {
+        viewModelScope.launch {
+            val settings = repository.importAllData(inputStream)
+            if (settings != null) {
+                applySettings(settings)
+            }
+        }
+    }
+
+    fun exportSettings(outputStream: OutputStream) {
+        viewModelScope.launch {
+            val settings = getAllSettings()
+            val json = Json.encodeToString(settings)
+            outputStream.use { it.write(json.toByteArray()) }
+        }
+    }
+
+    fun importSettings(inputStream: InputStream) {
+        viewModelScope.launch {
+            try {
+                val json = inputStream.bufferedReader().use { it.readText() }
+                val settings = Json.decodeFromString<Map<String, String>>(json)
+                applySettings(settings)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
 
     fun exportStats(outputStream: OutputStream) {
         viewModelScope.launch {

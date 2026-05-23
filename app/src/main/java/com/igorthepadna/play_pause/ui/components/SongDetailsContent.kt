@@ -53,6 +53,7 @@ fun SongDetailsContent(
     onFolderClick: (String) -> Unit = {},
     onShareClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
+    onSkipSettingsClick: () -> Unit = {},
     onNavigateToArtist: ((String) -> Unit)? = null,
     onNavigateToAlbum: ((Long) -> Unit)? = null,
     onNavigateToGenre: ((String) -> Unit)? = null,
@@ -72,6 +73,7 @@ fun SongDetailsContent(
 
     var genre by remember { mutableStateOf("Loading...") }
     var bitrate by remember { mutableStateOf("Loading...") }
+    var releaseDate by remember { mutableStateOf<String?>(null) }
     var lyricType by remember { mutableStateOf("Checking...") }
 
     var infoDialogTitle by remember { mutableStateOf<String?>(null) }
@@ -86,9 +88,11 @@ fun SongDetailsContent(
                 genre = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE) ?: "Unknown Genre"
                 val br = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
                 bitrate = if (br != null) "${br.toInt() / 1000} kbps" else "Unknown Bitrate"
+                releaseDate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE) ?: if (song.year > 0) song.year.toString() else null
             } catch (_: Exception) {
                 genre = "Unknown"
                 bitrate = "Unknown"
+                releaseDate = if (song.year > 0) song.year.toString() else null
             } finally {
                 retriever.release()
             }
@@ -134,6 +138,7 @@ fun SongDetailsContent(
     val details = listOfNotNull(
         Triple(Icons.Rounded.Album, song.album, "Album"),
         Triple(Icons.Rounded.MusicNote, genre, "Genre"),
+        if (releaseDate != null) Triple(Icons.Rounded.CalendarMonth, releaseDate!!, "Date") else null,
         Triple(Icons.Rounded.Timer, formatDuration(song.duration), "Duration"),
         Triple(Icons.Rounded.GraphicEq, bitrate, "Bitrate"),
         Triple(Icons.Rounded.FormatShapes, song.format.substringAfter("/").uppercase(), "Format"),
@@ -150,7 +155,8 @@ fun SongDetailsContent(
         "Size" to "The disk space occupied by the audio file on your device.",
         "Track" to "The position of the song within an album or disc.",
         "Disc" to "The disc number if the album consists of multiple discs.",
-        "Lyrics" to "The type of lyrics synchronization found for this song."
+        "Lyrics" to "The type of lyrics synchronization found for this song.",
+        "Date" to "The release date or year of the song as stored in its metadata."
     )
 
     Column(
@@ -222,7 +228,7 @@ fun SongDetailsContent(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilledTonalButton(
                 onClick = onShareClick,
@@ -231,11 +237,27 @@ fun SongDetailsContent(
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = artworkColors.secondary.copy(alpha = 0.12f),
                     contentColor = MaterialTheme.colorScheme.onSurface
-                )
+                ),
+                contentPadding = PaddingValues(horizontal = 8.dp)
             ) {
-                Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Share", fontWeight = FontWeight.Bold)
+                Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Share", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+
+            FilledTonalButton(
+                onClick = onSkipSettingsClick,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = artworkColors.tertiary.copy(alpha = 0.12f),
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                contentPadding = PaddingValues(horizontal = 8.dp)
+            ) {
+                Icon(Icons.Rounded.SettingsBackupRestore, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Skips", fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
 
             Button(
@@ -245,11 +267,12 @@ fun SongDetailsContent(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
                     contentColor = MaterialTheme.colorScheme.onErrorContainer
-                )
+                ),
+                contentPadding = PaddingValues(horizontal = 8.dp)
             ) {
-                Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Delete", fontWeight = FontWeight.Bold)
+                Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Delete", fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
 

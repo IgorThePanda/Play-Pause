@@ -115,7 +115,7 @@ fun NowPlayingBar(
     val currentSong by viewModel?.currentPlayingSong?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
     val currentAlbum by viewModel?.currentPlayingAlbum?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
 
-    val effectiveArtworkUri = remember(currentSong, currentAlbum) {
+    val effectiveArtworkUri = remember(currentSong?.id, currentAlbum?.id) {
         currentAlbum?.artworkUri ?: currentSong?.albumArtUri
     }
 
@@ -526,7 +526,7 @@ private fun PlaybackSection(
         label = "progress_animation"
     )
 
-    val effectiveArtworkUri = remember(currentSong, currentAlbum) {
+    val effectiveArtworkUri = remember(currentSong?.id, currentAlbum?.id) {
         currentAlbum?.artworkUri ?: currentSong?.albumArtUri
     }
 

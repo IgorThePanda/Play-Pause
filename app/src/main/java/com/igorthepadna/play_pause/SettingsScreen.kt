@@ -627,6 +627,13 @@ fun BackupSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigat
     val context = LocalContext.current
     var showClearHistoryDialog by remember { mutableStateOf(false) }
 
+    val fullExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { context.contentResolver.openOutputStream(it)?.let { os -> viewModel.exportAllData(os) } }
+    }
+    val fullRestoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { context.contentResolver.openInputStream(it)?.let { isStream -> viewModel.importAllData(isStream) } }
+    }
+
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         uri?.let { context.contentResolver.openOutputStream(it)?.let { os -> viewModel.exportPlaylists(os) } }
     }
@@ -642,6 +649,13 @@ fun BackupSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigat
     }
     val importSkipRulesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { context.contentResolver.openInputStream(it)?.let { isStream -> viewModel.importSkipRules(isStream) } }
+    }
+
+    val exportSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { context.contentResolver.openOutputStream(it)?.let { os -> viewModel.exportSettings(os) } }
+    }
+    val importSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { context.contentResolver.openInputStream(it)?.let { isStream -> viewModel.importSettings(isStream) } }
     }
 
     if (showClearHistoryDialog) {
@@ -686,6 +700,48 @@ fun BackupSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigat
             modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Full Backup/Restore Section
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    onClick = { fullExportLauncher.launch("play_pause_full_backup.json") },
+                    modifier = Modifier.weight(1f).height(100.dp),
+                    shape = RoundedCornerShape(32.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    tonalElevation = 8.dp
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Rounded.Backup, null, modifier = Modifier.size(32.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text("Backup All", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+
+                Surface(
+                    onClick = { fullRestoreLauncher.launch(arrayOf("application/json")) },
+                    modifier = Modifier.weight(1f).height(100.dp),
+                    shape = RoundedCornerShape(32.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    tonalElevation = 8.dp
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Rounded.Restore, null, modifier = Modifier.size(32.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text("Restore All", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
+
             SettingsSection(title = "Playlist Backups") {
                 SettingsActionItem(
                     title = "Export All Playlists",
@@ -719,6 +775,21 @@ fun BackupSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNavigat
                     subtitle = "Restore skip rules from a JSON file",
                     icon = Icons.Rounded.Download,
                     onClick = { importSkipRulesLauncher.launch(arrayOf("application/json")) }
+                )
+            }
+
+            SettingsSection(title = "Settings Backup") {
+                SettingsActionItem(
+                    title = "Export App Settings",
+                    subtitle = "Save your preferences to a JSON file",
+                    icon = Icons.Rounded.Settings,
+                    onClick = { exportSettingsLauncher.launch("play_pause_settings.json") }
+                )
+                SettingsActionItem(
+                    title = "Import App Settings",
+                    subtitle = "Restore your preferences from a JSON file",
+                    icon = Icons.Rounded.SettingsSuggest,
+                    onClick = { importSettingsLauncher.launch(arrayOf("application/json")) }
                 )
             }
 

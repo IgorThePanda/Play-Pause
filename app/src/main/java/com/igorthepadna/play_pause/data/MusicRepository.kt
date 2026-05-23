@@ -33,11 +33,17 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
+private val jsonSerializer = Json { 
+    ignoreUnknownKeys = true 
+    coerceInputValues = true
+}
+
 class MusicRepository(private val context: Context) {
 
     private val database = AppDatabase.getDatabase(context)
     private val playlistDao = database.playlistDao()
     private val statsDao = database.statsDao()
+    private val skipRuleDao = database.skipRuleDao()
 
     private var cachedSongs: List<Song>? = null
     private var cachedAlbums: List<Album>? = null
@@ -58,6 +64,10 @@ class MusicRepository(private val context: Context) {
             }
         }
         return paths
+    }
+
+    suspend fun updateSongLyrics(songId: Long, lyrics: String?) = withContext(Dispatchers.IO) {
+        playlistDao.updateSongLyrics(songId, lyrics)
     }
 
     suspend fun getSongs(useCache: Boolean = true, onlyMusicFolder: Boolean = false): List<Song> = withContext(Dispatchers.IO) {
@@ -116,7 +126,6 @@ class MusicRepository(private val context: Context) {
                 val (cleanTitle, cleanArtist) = processSongMetadata(rawTitle, rawArtist)
                 val songUri = ContentUris.withAppendedId(collection, id)
                 val path = cursor.getString(dataCol) ?: ""
-                val lyrics = getLyricsSync(path)
 
                 songList.add(Song(
                     id = id, title = cleanTitle, artist = cleanArtist, album = cleanTitle(cursor.getString(albumCol) ?: "Unknown Album"),
@@ -126,7 +135,7 @@ class MusicRepository(private val context: Context) {
                     dateAdded = cursor.getLong(dateCol), trackNumber = track, discNumber = if (disc == 0) 1 else disc,
                     albumArtist = if (albArtCol != -1) cursor.getString(albArtCol) else null, albumId = cursor.getLong(albIdCol),
                     year = cursor.getInt(yearCol), bitrate = if (cursor.getLong(durCol) > 0) "${(cursor.getLong(sizeCol) * 8 / cursor.getLong(durCol)).toInt()} kbps" else null,
-                    lyrics = lyrics
+                    lyrics = null // Fetch in background later
                 ))
             }
         }
@@ -351,6 +360,62 @@ class MusicRepository(private val context: Context) {
     fun getTopArtists(limit: Int, since: Long) = statsDao.getTopArtists(limit, since)
     fun getTopTracks(limit: Int, since: Long) = statsDao.getTopTracks(limit, since)
 
+    suspend fun exportAllData(outputStream: OutputStream, settings: Map<String, String> = emptyMap()) {
+        val playlists = playlistDao.getAllPlaylistsSync()
+        val backups = playlists.map { p ->
+            val songsWith = playlistDao.getPlaylistWithSongsSync(p.id)
+            val songs = songsWith?.songs?.mapNotNull { ps -> 
+                cachedSongs?.find { it.id == ps.songId }?.let { s -> 
+                    SongBackup(s.title, s.artist, s.album, s.duration, s.path, s.id) 
+                } 
+            } ?: emptyList()
+            PlaylistBackupV2(p, songs)
+        }
+        val playEvents = statsDao.getAllPlayEventsSync()
+        val skipRules = skipRuleDao.getAllRulesSync()
+        val pinnedItems = playlistDao.getAllPinnedItemsSync()
+        
+        val fullBackup = FullBackupV2(
+            playlists = backups,
+            playEvents = playEvents,
+            skipRules = skipRules,
+            pinnedItems = pinnedItems,
+            settings = settings
+        )
+        
+        outputStream.use { it.write(jsonSerializer.encodeToString(fullBackup).toByteArray()) }
+    }
+
+    suspend fun importAllData(inputStream: InputStream): Map<String, String>? {
+        val json = inputStream.bufferedReader().use { it.readText() }
+        return try {
+            val fullBackup = jsonSerializer.decodeFromString<FullBackupV2>(json)
+            
+            // 1. Restore Playlists
+            fullBackup.playlists.forEach { importPlaylistV2(it) }
+            
+            // 2. Restore Stats
+            if (fullBackup.playEvents.isNotEmpty()) {
+                statsDao.insertPlayEvents(fullBackup.playEvents)
+            }
+            
+            // 3. Restore Skip Rules
+            if (fullBackup.skipRules.isNotEmpty()) {
+                skipRuleDao.insertAll(fullBackup.skipRules)
+            }
+            
+            // 4. Restore Pinned Items
+            if (fullBackup.pinnedItems.isNotEmpty()) {
+                playlistDao.insertPinnedItems(fullBackup.pinnedItems)
+            }
+
+            fullBackup.settings
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     suspend fun exportPlaylists(outputStream: OutputStream) {
         val playlists = playlistDao.getAllPlaylistsSync()
         val backups = playlists.map { p ->
@@ -359,29 +424,29 @@ class MusicRepository(private val context: Context) {
             PlaylistBackupV2(p, songs)
         }
         val playEvents = statsDao.getAllPlayEventsSync()
-        outputStream.use { it.write(Json.encodeToString(FullBackupV2(backups, playEvents)).toByteArray()) }
+        outputStream.use { it.write(jsonSerializer.encodeToString(FullBackupV2(backups, playEvents)).toByteArray()) }
     }
 
     suspend fun exportSinglePlaylist(playlistId: String, outputStream: OutputStream) {
         val entity = playlistDao.getPlaylistById(playlistId) ?: return
         val songsWith = playlistDao.getPlaylistWithSongsSync(playlistId)
         val songs = songsWith?.songs?.mapNotNull { ps -> cachedSongs?.find { it.id == ps.songId }?.let { s -> SongBackup(s.title, s.artist, s.album, s.duration, s.path, s.id) } } ?: emptyList()
-        outputStream.use { it.write(Json.encodeToString(PlaylistBackupV2(entity, songs)).toByteArray()) }
+        outputStream.use { it.write(jsonSerializer.encodeToString(PlaylistBackupV2(entity, songs)).toByteArray()) }
     }
 
     suspend fun importPlaylists(inputStream: InputStream) {
         val json = inputStream.bufferedReader().use { it.readText() }
         try {
             try { 
-                val fullBackup = Json.decodeFromString<FullBackupV2>(json)
+                val fullBackup = jsonSerializer.decodeFromString<FullBackupV2>(json)
                 fullBackup.playlists.forEach { importPlaylistV2(it) }
                 if (fullBackup.playEvents.isNotEmpty()) {
                     statsDao.insertPlayEvents(fullBackup.playEvents)
                 }
                 return 
             } catch (e: Exception) {}
-            try { importPlaylistV2(Json.decodeFromString<PlaylistBackupV2>(json)); return } catch (e: Exception) {}
-            val b = Json.decodeFromString<PlaylistBackup>(json); playlistDao.insertPlaylists(b.playlists); playlistDao.insertPlaylistSongs(b.playlistSongs)
+            try { importPlaylistV2(jsonSerializer.decodeFromString<PlaylistBackupV2>(json)); return } catch (e: Exception) {}
+            val b = jsonSerializer.decodeFromString<PlaylistBackup>(json); playlistDao.insertPlaylists(b.playlists); playlistDao.insertPlaylistSongs(b.playlistSongs)
         } catch (e: Exception) { importFromM3U(json) }
     }
 

@@ -1,24 +1,25 @@
 package com.igorthepadna.play_pause.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -27,7 +28,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.igorthepadna.play_pause.R
 import com.igorthepadna.play_pause.data.Album
-import com.igorthepadna.play_pause.data.MusicRepository
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 
 @Composable
@@ -83,10 +83,10 @@ fun AlbumCard(
     val showTitle = columns <= 3
 
     val rounding = when {
-        columns <= 1 -> 24.dp
-        columns == 2 -> 16.dp
-        columns == 3 -> 12.dp
-        else -> 8.dp
+        columns <= 1 -> 32.dp
+        columns == 2 -> 24.dp
+        columns == 3 -> 16.dp
+        else -> 12.dp
     }
 
     // Outer container - Optimized Surface usage
@@ -94,7 +94,7 @@ fun AlbumCard(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(if (showMetadata) 28.dp else rounding),
+        shape = if (showMetadata) MaterialTheme.shapes.extraLarge else RoundedCornerShape(rounding),
         color = when {
             isPlaying -> artworkColors.secondary.copy(alpha = 0.15f)
             showMetadata -> MaterialTheme.colorScheme.surfaceContainerLowest
@@ -150,92 +150,66 @@ fun AlbumCard(
                     // 1. Song Count Pill (No Blur)
                     Surface(
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(10.dp)
-                            .height(30.dp),
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
                         shape = CircleShape,
-                        color = overlayBgColor
+                        color = Color.Black.copy(alpha = 0.4f),
+                        contentColor = Color.White
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp).fillMaxHeight(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(Icons.Rounded.MusicNote, null, modifier = Modifier.size(14.dp), tint = contentColor)
-                            Text(
-                                text = songCount.toString(),
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, fontSize = 12.sp, color = contentColor),
-                                modifier = Modifier.clearAndSetSemantics { }
-                            )
-                        }
+                        Text(
+                            text = "$songCount",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
                     }
 
-                    // 2. Quick Play Button (No Blur)
+                    // 2. Play Button
                     if (onPlayClick != null) {
                         Surface(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(10.dp)
-                                .size(36.dp),
+                                .padding(8.dp)
+                                .size(42.dp),
                             shape = CircleShape,
                             color = overlayBgColor,
-                            onClick = onPlayClick
+                            contentColor = contentColor,
+                            onClick = onPlayClick,
+                            tonalElevation = 4.dp,
+                            shadowElevation = 8.dp
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Rounded.PlayArrow, "Play Album $title", modifier = Modifier.size(22.dp), tint = contentColor)
+                                Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(24.dp))
                             }
                         }
                     }
                 }
             }
 
-            // 2. Metadata Segment
+            // 2. Metadata Section
             if (showMetadata) {
-                Surface(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                    shape = RoundedCornerShape(rounding),
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp)
+                        .padding(bottom = 4.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = if (showDetails) 12.dp else 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            val isLightMode = MaterialTheme.colorScheme.surface.toArgb().let {
-                                val hsl = FloatArray(3)
-                                androidx.core.graphics.ColorUtils.colorToHSL(it, hsl)
-                                hsl[2] > 0.5f
-                            }
-
-                            val titleColor = remember(artworkColors.secondary, isLightMode) {
-                                val hsl = FloatArray(3)
-                                androidx.core.graphics.ColorUtils.colorToHSL(artworkColors.secondary.toArgb(), hsl)
-                                if (isLightMode) {
-                                    if (hsl[2] > 0.4f) hsl[2] = 0.3f
-                                    hsl[1] = (hsl[1] + 0.2f).coerceAtMost(1f)
-                                } else {
-                                    if (hsl[2] < 0.6f) hsl[2] = 0.8f
-                                }
-                                Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
-                            }
-
-                            if (showTitle) {
-                                Text(
-                                    text = title,
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = 14.sp, letterSpacing = (-0.2).sp),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = titleColor
-                                )
-                            }
-                            if (showArtist) {
-                                ArtistSubtitle(
-                                    artistText = artist,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
-                                    mainColor = if (isLightMode) Color.DarkGray else Color.LightGray
-                                )
-                            }
-                        }
+                    if (showTitle) {
+                        Text(
+                            text = title,
+                            style = if (showDetails) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = if (isPlaying) artworkColors.secondary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    if (showArtist) {
+                        ArtistSubtitle(
+                            artistText = artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            mainColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
                     }
                 }
             }

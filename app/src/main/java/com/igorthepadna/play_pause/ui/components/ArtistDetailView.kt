@@ -814,7 +814,7 @@ private fun ArtistHighFidelityHeader(
     isPinned: Boolean = false
 ) {
     val model = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri
-    
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -875,9 +875,9 @@ private fun ArtistHighFidelityHeader(
                     Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)))
                 }
                 Icon(
-                    Icons.AutoMirrored.Rounded.ArrowBack, 
-                    "Back", 
-                    tint = Color.White, 
+                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    "Back",
+                    tint = Color.White,
                     modifier = Modifier.align(Alignment.Center).size(20.dp)
                 )
             }
@@ -902,8 +902,8 @@ private fun ArtistHighFidelityHeader(
                     Box(modifier = Modifier.fillMaxSize().background(if (isPinned) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.25f)))
                 }
                 Icon(
-                    Icons.Rounded.PushPin, 
-                    "Pin to Hub", 
+                    Icons.Rounded.PushPin,
+                    "Pin to Hub",
                     tint = if (isPinned) MaterialTheme.colorScheme.primary else Color.White,
                     modifier = Modifier.align(Alignment.Center).size(20.dp)
                 )
@@ -931,8 +931,8 @@ private fun ArtistHighFidelityHeader(
                 }
                 Icon(
                     Icons.Rounded.PlayArrow,
-                    null, 
-                    tint = Color.White, 
+                    null,
+                    tint = Color.White,
                     modifier = Modifier.align(Alignment.Center).size(28.dp)
                 )
             }
@@ -949,7 +949,7 @@ private fun ArtistHighFidelityHeader(
             mainColor = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 24.dp)
         )
-        
+
         Text(
             text = buildString {
                 append("${artist.albumCount} Albums")

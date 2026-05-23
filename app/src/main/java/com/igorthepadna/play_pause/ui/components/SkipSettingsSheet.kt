@@ -1,5 +1,6 @@
 package com.igorthepadna.play_pause.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,10 +17,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.igorthepadna.play_pause.MainViewModel
 import com.igorthepadna.play_pause.data.LyricLine
 import com.igorthepadna.play_pause.data.Song
@@ -93,7 +97,13 @@ fun SkipSettingsSheet(
                 }
                 Switch(
                     checked = entireSongRule != null,
-                    onCheckedChange = null,
+                    onCheckedChange = { checked ->
+                        if (entireSongRule != null) {
+                            viewModel.removeSkipRule(entireSongRule)
+                        } else {
+                            viewModel.addSkipRule(SkipRuleEntity(mediaId = song.id.toString(), type = SkipType.ENTIRE_SONG))
+                        }
+                    },
                     colors = SwitchDefaults.colors(checkedThumbColor = artworkColors.secondary, checkedTrackColor = artworkColors.secondary.copy(alpha = 0.5f))
                 )
             }
@@ -181,49 +191,94 @@ fun AddSectionView(
     artworkColors: ArtworkColors
 ) {
     var range by remember { mutableStateOf(0f..song.duration.toFloat().coerceAtLeast(1f)) }
-    var useLyrics by rememberSaveable { mutableStateOf(parsedLyrics.isNotEmpty()) }
+    var useLyrics by rememberSaveable(parsedLyrics.isNotEmpty()) { mutableStateOf(parsedLyrics.isNotEmpty()) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
-            .padding(16.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+            .padding(20.dp)
     ) {
+        // --- Expressive Header ---
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Add Skip Rule", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            ElevatedCard(
+                modifier = Modifier.size(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp)
+            ) {
+                AsyncImage(
+                    model = song.albumArtUri,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            
+            Spacer(Modifier.width(16.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = song.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (useLyrics) "Select lyrics range" else "Select time range",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = artworkColors.secondary
+                )
+            }
+
             if (parsedLyrics.isNotEmpty()) {
-                Button(
+                FilledTonalIconButton(
                     onClick = { useLyrics = !useLyrics },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = artworkColors.secondary.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = artworkColors.secondary.copy(alpha = 0.15f),
                         contentColor = artworkColors.secondary
                     ),
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    modifier = Modifier.size(40.dp)
                 ) {
-                    Icon(if (useLyrics) Icons.Rounded.Timer else Icons.Rounded.Lyrics, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (useLyrics) "Use Time" else "Use Lyrics", style = MaterialTheme.typography.labelMedium)
+                    Icon(
+                        if (useLyrics) Icons.Rounded.Timer else Icons.Rounded.Lyrics, 
+                        null, 
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
 
         if (useLyrics) {
             var startLine by remember { mutableStateOf<LyricLine?>(null) }
             var endLine by remember { mutableStateOf<LyricLine?>(null) }
 
-            Text("Select range of lyrics to skip:", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
-            
-            Box(modifier = Modifier.heightIn(max = 300.dp)) {
-                LazyColumn {
-                    items(parsedLyrics) { line ->
+            val beginningLine = remember { LyricLine(timestamp = 0L, text = "[Beginning]") }
+            val endLineMarker = remember { LyricLine(timestamp = song.duration, text = "[End]") }
+            val displayLyrics = remember(parsedLyrics) {
+                listOf(beginningLine) + parsedLyrics + listOf(endLineMarker)
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 280.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
+                    .padding(4.dp)
+            ) {
+                LazyColumn(
+                    contentPadding = PaddingValues(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(displayLyrics) { line ->
                         val isSelected = remember(startLine, endLine, line) {
                             val startTs = startLine?.timestamp ?: -1L
                             val endTs = endLine?.timestamp ?: -1L
@@ -250,55 +305,116 @@ fun AddSectionView(
                                     endLine = null
                                 }
                             },
-                            color = if (isSelected) artworkColors.secondary.copy(alpha = 0.2f) else Color.Transparent,
-                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) artworkColors.secondary.copy(alpha = 0.25f) else Color.Transparent,
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                line.text,
-                                modifier = Modifier.padding(8.dp),
-                                style = MaterialTheme.typography.bodyMedium
+                                text = line.text,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                style = if (line == beginningLine || line == endLineMarker) 
+                                    MaterialTheme.typography.labelLarge.copy(color = artworkColors.secondary, fontWeight = FontWeight.Black)
+                                else MaterialTheme.typography.bodyMedium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
             }
             
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onCancel) { Text("Cancel") }
-                Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.height(24.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                ) { 
+                    Text("Cancel") 
+                }
+                
                 Button(
                     onClick = {
                         val start = startLine?.timestamp ?: 0L
-                        val end = endLine?.let { el ->
-                            val idx = parsedLyrics.indexOf(el)
-                            parsedLyrics.getOrNull(idx + 1)?.timestamp ?: song.duration
-                        } ?: (start + 1000L).coerceAtMost(song.duration)
+                        val end = if (endLine == endLineMarker) {
+                            song.duration
+                        } else {
+                            endLine?.let { el ->
+                                val idx = parsedLyrics.indexOf(el)
+                                parsedLyrics.getOrNull(idx + 1)?.timestamp ?: song.duration
+                            } ?: (start + 1000L).coerceAtMost(song.duration)
+                        }
                         onAdd(start, end)
                     },
                     enabled = startLine != null,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = artworkColors.secondary)
-                ) { Text("Add") }
+                ) { 
+                    Text("Add Section", fontWeight = FontWeight.Bold) 
+                }
             }
         } else {
-            RangeSlider(
-                value = range,
-                onValueChange = { range = it },
-                valueRange = 0f..song.duration.toFloat().coerceAtLeast(1f),
-                colors = SliderDefaults.colors(activeTrackColor = artworkColors.secondary, thumbColor = artworkColors.secondary)
-            )
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatDuration(range.start.toLong()), style = MaterialTheme.typography.bodySmall)
-                Text(formatDuration(range.endInclusive.toLong()), style = MaterialTheme.typography.bodySmall)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
+                    .padding(20.dp)
+            ) {
+                RangeSlider(
+                    value = range,
+                    onValueChange = { range = it },
+                    valueRange = 0f..song.duration.toFloat().coerceAtLeast(1f),
+                    colors = SliderDefaults.colors(
+                        activeTrackColor = artworkColors.secondary,
+                        inactiveTrackColor = artworkColors.secondary.copy(alpha = 0.2f),
+                        thumbColor = artworkColors.secondary
+                    )
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        text = formatDuration(range.start.toLong()), 
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = artworkColors.secondary
+                    )
+                    Text(
+                        text = formatDuration(range.endInclusive.toLong()), 
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = artworkColors.secondary
+                    )
+                }
             }
 
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onCancel) { Text("Cancel") }
-                Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.height(24.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                ) { 
+                    Text("Cancel") 
+                }
+                
                 Button(
                     onClick = { onAdd(range.start.toLong(), range.endInclusive.toLong()) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = artworkColors.secondary)
-                ) { Text("Add") }
+                ) { 
+                    Text("Add Section", fontWeight = FontWeight.Bold) 
+                }
             }
         }
     }
