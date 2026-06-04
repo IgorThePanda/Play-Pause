@@ -61,7 +61,7 @@ fun PlaylistDetailView(
     onNavigateToArtist: (String) -> Unit = {},
     onEditCover: () -> Unit = {},
     onAddSongs: () -> Unit = {},
-    onInfoClick: () -> Unit = {},
+    onEditClick: () -> Unit = {},
     onPinClick: () -> Unit = {},
     isPinned: Boolean = false,
     modifier: Modifier = Modifier,
@@ -112,7 +112,7 @@ fun PlaylistDetailView(
                     onPlay = { onPlaySongs(playlistSongs, 0, null) },
                     onShuffle = { onPlaySongs(playlistSongs, 0, true) },
                     onEditCover = onEditCover,
-                    onInfoClick = onInfoClick,
+                    onEditClick = onEditClick,
                     onPinClick = onPinClick,
                     isPinned = isPinned
                 )
@@ -223,7 +223,7 @@ fun PlaylistHighFidelityHeader(
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
     onEditCover: () -> Unit,
-    onInfoClick: () -> Unit,
+    onEditClick: () -> Unit,
     onPinClick: () -> Unit = {},
     isPinned: Boolean = false
 ) {
@@ -328,7 +328,7 @@ fun PlaylistHighFidelityHeader(
                 )
             }
 
-            // Info Button (Top Right)
+            // Edit Button (Top Right)
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -336,7 +336,7 @@ fun PlaylistHighFidelityHeader(
                     .size(40.dp)
                     .clip(CircleShape)
                     .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
-                    .clickable { onInfoClick() }
+                    .clickable { onEditClick() }
             ) {
                 Box(modifier = Modifier.matchParentSize()) {
                     if (artworkUri != null) {
@@ -350,8 +350,8 @@ fun PlaylistHighFidelityHeader(
                     Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)))
                 }
                 Icon(
-                    Icons.Rounded.Info,
-                    "Info",
+                    Icons.Rounded.Edit,
+                    "Edit",
                     tint = Color.White,
                     modifier = Modifier.align(Alignment.Center).size(20.dp)
                 )

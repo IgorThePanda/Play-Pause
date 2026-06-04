@@ -42,6 +42,8 @@ import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.data.SortType
 import com.igorthepadna.play_pause.ui.components.AlbumCard
 import com.igorthepadna.play_pause.ui.components.SongItem
+import com.igorthepadna.play_pause.ui.components.DetailedSongItem
+import com.igorthepadna.play_pause.ui.components.CompactGridItem
 import com.igorthepadna.play_pause.ui.components.AlbumDetailView
 import com.igorthepadna.play_pause.ui.components.ArtistCard
 import com.igorthepadna.play_pause.ui.components.ArtistDetailView
@@ -479,14 +481,14 @@ private fun DetailViewSwitcher(
                 },
                 onEditCover = { viewModel?.setCoverEditingPlaylistId(detailItem.id) },
                 onAddSongs = { viewModel?.setShowSongSelectionForPlaylist(detailItem.id) },
-                onInfoClick = { viewModel?.setSelectedPlaylistInfoId(detailItem.id) },
+                onEditClick = { viewModel?.setSelectedPlaylistEditId(detailItem.id) },
                 viewModel = viewModel
                 )
             }
-            is com.igorthepadna.play_pause.MainViewModel.Selection.PlaylistInfo -> {
+            is com.igorthepadna.play_pause.MainViewModel.Selection.PlaylistEdit -> {
                 val playlist = remember(playlists) { playlists.find { it.id == detailItem.id } }
                 if (playlist != null) {
-                    com.igorthepadna.play_pause.ui.components.playlists.PlaylistInfoView(
+                    com.igorthepadna.play_pause.ui.components.playlists.PlaylistEditView(
                         playlist = playlist,
                         playlistSongs = selectedPlaylistSongs,
                         albumArtMap = albumArtMap,
@@ -610,7 +612,11 @@ private fun MainLibraryContent(
                 LibraryFilter.ALBUMS -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_albums"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
-                    val effectiveColumns = calculateGridColumns(if (settings.viewMode == CategoryViewMode.GRID) settings.gridSizeMode else GridSizeMode.LARGE)
+                    val effectiveColumns = when (settings.viewMode) {
+                        CategoryViewMode.GRID -> calculateGridColumns(settings.gridSizeMode)
+                        CategoryViewMode.COMPACT -> 2
+                        else -> 1
+                    }
 
                     LazyVerticalGrid(
                         state = gridState,
@@ -659,13 +665,21 @@ private fun MainLibraryContent(
                                     onNavigateToArtist = onArtistNav
                                 )
                             } else if (settings.viewMode == CategoryViewMode.COMPACT) {
-                                UniversalSongItem(
+                                CompactGridItem(
                                     song = displayAlbum.songs.first(),
                                     isPlaying = isPlaying,
                                     onClick = onAlbumClick,
-                                    onDetailsClick = {},
-                                    onSwipePlayNext = {},
-                                    onSwipeAddToPlaylist = {},
+                                    label = displayAlbum.title,
+                                    secondaryLabel = displayAlbum.artist,
+                                    artworkUri = displayAlbum.artworkUri
+                                )
+                            } else if (settings.viewMode == CategoryViewMode.DETAILED) {
+                                DetailedSongItem(
+                                    song = displayAlbum.songs.first(),
+                                    isPlaying = isPlaying,
+                                    onClick = onAlbumClick,
+                                    onPlayClick = onAlbumPlay,
+                                    onDetailsClick = onAlbumClick,
                                     label = displayAlbum.title,
                                     secondaryLabel = displayAlbum.artist,
                                     artworkUri = displayAlbum.artworkUri,
@@ -703,7 +717,11 @@ private fun MainLibraryContent(
                 LibraryFilter.ARTISTS -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_artists"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
-                    val effectiveColumns = calculateGridColumns(if (settings.viewMode == CategoryViewMode.GRID) settings.gridSizeMode else GridSizeMode.LARGE)
+                    val effectiveColumns = when (settings.viewMode) {
+                        CategoryViewMode.GRID -> calculateGridColumns(settings.gridSizeMode)
+                        CategoryViewMode.COMPACT -> 2
+                        else -> 1
+                    }
 
                     LazyVerticalGrid(
                         state = gridState,
@@ -734,19 +752,31 @@ private fun MainLibraryContent(
                                 ArtistCard(
                                     artist = artist, 
                                     onClick = onArtistClick,
+                                    onPlayClick = { onPlaySongs(artist.songs + artist.featuredSongs, 0, null) },
                                     columns = effectiveColumns,
                                     isPlaying = isPlaying
                                 )
                             } else if (settings.viewMode == CategoryViewMode.COMPACT) {
                                 val representativeSong = (artist.songs + artist.featuredSongs).firstOrNull()
                                 if (representativeSong != null) {
-                                    UniversalSongItem(
+                                    CompactGridItem(
                                         song = representativeSong,
                                         isPlaying = isPlaying,
                                         onClick = onArtistClick,
-                                        onDetailsClick = {},
-                                        onSwipePlayNext = {},
-                                        onSwipeAddToPlaylist = {},
+                                        label = artist.name,
+                                        secondaryLabel = "${artist.albumCount} Albums • ${artist.trackCount} Songs",
+                                        artworkUri = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri
+                                    )
+                                }
+                            } else if (settings.viewMode == CategoryViewMode.DETAILED) {
+                                val representativeSong = (artist.songs + artist.featuredSongs).firstOrNull()
+                                if (representativeSong != null) {
+                                    DetailedSongItem(
+                                        song = representativeSong,
+                                        isPlaying = isPlaying,
+                                        onClick = onArtistClick,
+                                        onPlayClick = { onPlaySongs(artist.songs + artist.featuredSongs, 0, null) },
+                                        onDetailsClick = onArtistClick,
                                         label = artist.name,
                                         secondaryLabel = "${artist.albumCount} Albums • ${artist.trackCount} Songs",
                                         artworkUri = artist.thumbnailUri ?: artist.albums.firstOrNull()?.artworkUri
@@ -782,7 +812,11 @@ private fun MainLibraryContent(
                 LibraryFilter.PLAYLISTS -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_playlists"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
-                    val effectiveColumns = calculateGridColumns(if (settings.viewMode == CategoryViewMode.GRID) settings.gridSizeMode else GridSizeMode.LARGE)
+                    val effectiveColumns = when (settings.viewMode) {
+                        CategoryViewMode.GRID -> calculateGridColumns(settings.gridSizeMode)
+                        CategoryViewMode.COMPACT -> 2
+                        else -> 1
+                    }
 
                     LazyVerticalGrid(
                         state = gridState,
@@ -810,13 +844,10 @@ private fun MainLibraryContent(
                                     albumArtMap = albumArtMap
                                 )
                             } else if (settings.viewMode == CategoryViewMode.COMPACT) {
-                                UniversalSongItem(
+                                CompactGridItem(
                                     song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
                                     isPlaying = isPlaying,
                                     onClick = onPlaylistClick,
-                                    onDetailsClick = {},
-                                    onSwipePlayNext = {},
-                                    onSwipeAddToPlaylist = {},
                                     label = playlist.name,
                                     secondaryLabel = "${playlist.songs.size} Songs",
                                     artworkUri = null,
@@ -827,6 +858,17 @@ private fun MainLibraryContent(
                                             iconSize = 24.dp
                                         )
                                     }
+                                )
+                            } else if (settings.viewMode == CategoryViewMode.DETAILED) {
+                                DetailedSongItem(
+                                    song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
+                                    isPlaying = isPlaying,
+                                    onClick = onPlaylistClick,
+                                    onPlayClick = { onPlaySongs(playlist.songs.mapNotNull { id -> filteredSongs.find { it.id == id } }, 0, null) },
+                                    onDetailsClick = onPlaylistClick,
+                                    label = playlist.name,
+                                    secondaryLabel = "${playlist.songs.size} Songs",
+                                    artworkUri = null
                                 )
                             } else {
                                 UniversalSongItem(
@@ -854,17 +896,37 @@ private fun MainLibraryContent(
                             if (settings.viewMode == CategoryViewMode.GRID) {
                                 com.igorthepadna.play_pause.ui.components.playlists.CreatePlaylistCard(onClick = onCreatePlaylist)
                             } else if (settings.viewMode == CategoryViewMode.COMPACT) {
-                                UniversalSongItem(
+                                CompactGridItem(
                                     song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
                                     isPlaying = false,
                                     onClick = onCreatePlaylist,
-                                    onDetailsClick = {},
-                                    onSwipePlayNext = {},
-                                    onSwipeAddToPlaylist = {},
                                     label = "Create playlist",
                                     secondaryLabel = "Tap to start",
                                     artworkUri = null,
-                                    leadingIcon = Icons.Rounded.Add
+                                    leadingContent = {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Add,
+                                                null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                )
+                            } else if (settings.viewMode == CategoryViewMode.DETAILED) {
+                                DetailedSongItem(
+                                    song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
+                                    isPlaying = false,
+                                    onClick = onCreatePlaylist,
+                                    onPlayClick = onCreatePlaylist,
+                                    onDetailsClick = onCreatePlaylist,
+                                    label = "Create playlist",
+                                    secondaryLabel = "Tap to start",
+                                    artworkUri = null
                                 )
                             } else {
                                 UniversalSongItem(
@@ -886,7 +948,11 @@ private fun MainLibraryContent(
                 LibraryFilter.GENRES -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_genres"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.GRID)
-                    val effectiveColumns = calculateGridColumns(if (settings.viewMode == CategoryViewMode.GRID) settings.gridSizeMode else GridSizeMode.LARGE)
+                    val effectiveColumns = when (settings.viewMode) {
+                        CategoryViewMode.GRID -> calculateGridColumns(settings.gridSizeMode)
+                        CategoryViewMode.COMPACT -> 2
+                        else -> 1
+                    }
 
                     LazyVerticalGrid(
                         state = gridState,
@@ -914,13 +980,24 @@ private fun MainLibraryContent(
                                     isPlaying = isPlaying
                                 )
                             } else if (settings.viewMode == CategoryViewMode.COMPACT) {
-                                UniversalSongItem(
+                                CompactGridItem(
                                     song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
                                     isPlaying = isPlaying,
                                     onClick = onGenreClick,
-                                    onDetailsClick = {},
-                                    onSwipePlayNext = {},
-                                    onSwipeAddToPlaylist = {},
+                                    label = genre,
+                                    secondaryLabel = "$count Songs",
+                                    artworkUri = null
+                                )
+                            } else if (settings.viewMode == CategoryViewMode.DETAILED) {
+                                DetailedSongItem(
+                                    song = Song(0, "", "", "", 0, android.net.Uri.EMPTY, null, "", 0, "", 0, 0, 1, null, 0),
+                                    isPlaying = isPlaying,
+                                    onClick = onGenreClick,
+                                    onPlayClick = { 
+                                        val genreSongs = filteredSongs.filter { it.genre == genre }
+                                        onPlaySongs(genreSongs, 0, null)
+                                    },
+                                    onDetailsClick = onGenreClick,
                                     label = genre,
                                     secondaryLabel = "$count Songs",
                                     artworkUri = null
@@ -944,17 +1021,22 @@ private fun MainLibraryContent(
                 else -> Box(modifier = Modifier.fillMaxSize()) {
                     val categoryKey = "library_songs"
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
-                    val effectiveColumns = calculateGridColumns(settings.gridSizeMode)
+                    val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) calculateGridColumns(settings.gridSizeMode) else if (settings.viewMode == CategoryViewMode.COMPACT) 2 else 1
                     
-                    if (settings.viewMode == CategoryViewMode.GRID) {
+                    if (settings.viewMode == CategoryViewMode.GRID || settings.viewMode == CategoryViewMode.COMPACT) {
                         LazyVerticalGrid(
                             state = gridState,
                             columns = GridCells.Fixed(effectiveColumns),
                             contentPadding = contentPadding,
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(if (settings.viewMode == CategoryViewMode.GRID) 24.dp else 8.dp),
                             modifier = Modifier.fillMaxSize().verticalScrollbar(gridState, padding = scrollbarPadding)
                         ) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Box(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), contentAlignment = Alignment.Center) {
+                                    CounterBadge(countText)
+                                }
+                            }
                             gridItemsIndexed(
                                 items = filteredSongs,
                                 key = { _: Int, song: Song -> song.id },
@@ -973,18 +1055,27 @@ private fun MainLibraryContent(
                                         }
                                     }
                                 }
-                                AlbumCard(
-                                    title = song.title,
-                                    artist = song.artist,
-                                    artworkUri = albumArt,
-                                    onClick = onSongClick,
-                                    columns = effectiveColumns,
-                                    isPlaying = isPlaying,
-                                    songCount = 1,
-                                    allCovers = emptyList(),
-                                    hasFolderCover = true,
-                                    onNavigateToArtist = onArtistNav
-                                )
+                                if (settings.viewMode == CategoryViewMode.GRID) {
+                                    AlbumCard(
+                                        title = song.title,
+                                        artist = song.artist,
+                                        artworkUri = albumArt,
+                                        onClick = onSongClick,
+                                        columns = effectiveColumns,
+                                        isPlaying = isPlaying,
+                                        songCount = 1,
+                                        allCovers = emptyList(),
+                                        hasFolderCover = true,
+                                        onNavigateToArtist = onArtistNav
+                                    )
+                                } else {
+                                    CompactGridItem(
+                                        song = song,
+                                        isPlaying = isPlaying,
+                                        onClick = onSongClick,
+                                        artworkUri = albumArt
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -1019,17 +1110,13 @@ private fun MainLibraryContent(
                                     }
                                 }
 
-                                if (settings.viewMode == CategoryViewMode.COMPACT) {
-                                    UniversalSongItem(
+                                if (settings.viewMode == CategoryViewMode.DETAILED) {
+                                    DetailedSongItem(
                                         song = song,
                                         isPlaying = isPlaying,
                                         onClick = onSongClick,
+                                        onPlayClick = onSongClick,
                                         onDetailsClick = onSongDetailsInternal,
-                                        onSwipePlayNext = {
-                                            viewModel?.addPlayNext(song)
-                                            onShowMessage("Added to Play Next")
-                                        },
-                                        onSwipeAddToPlaylist = { onAddToPlaylist(song) },
                                         artworkUri = albumArt,
                                         onNavigateToArtist = onArtistNav
                                     )

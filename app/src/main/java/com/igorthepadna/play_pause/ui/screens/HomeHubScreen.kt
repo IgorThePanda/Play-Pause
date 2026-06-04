@@ -318,6 +318,7 @@ private fun PinnedItemCard(
                     onClick = { 
                         viewModel.setSelectedArtistName(artist.name)
                     },
+                    onPlayClick = { onPlaySongs(artist.songs + artist.featuredSongs, 0, null) },
                     columns = 2
                 )
             }

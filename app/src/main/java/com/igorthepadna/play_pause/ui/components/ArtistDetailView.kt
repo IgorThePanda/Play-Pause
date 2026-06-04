@@ -42,6 +42,7 @@ import com.igorthepadna.play_pause.data.Artist
 import com.igorthepadna.play_pause.data.GridSizeMode
 import com.igorthepadna.play_pause.data.Song
 import com.igorthepadna.play_pause.ui.components.UniversalSongItem
+import com.igorthepadna.play_pause.ui.components.CompactGridItem
 import com.igorthepadna.play_pause.utils.ArtworkColors
 import com.igorthepadna.play_pause.utils.rememberArtworkColors
 import com.igorthepadna.play_pause.utils.verticalScrollbar
@@ -107,9 +108,10 @@ fun ArtistDetailView(
             bottom = 140.dp
         )
 
+        val effectiveColumns = com.igorthepadna.play_pause.utils.calculateGridColumns(GridSizeMode.AUTO)
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Fixed(effectiveColumns),
             contentPadding = bottomPadding,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -118,7 +120,7 @@ fun ArtistDetailView(
                 .statusBarsPadding()
                 .verticalScrollbar(gridState, padding = bottomPadding)
         ) {
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(effectiveColumns) }) {
                 ArtistHighFidelityHeader(
                     artist = artist,
                     onBack = onBack,
@@ -130,7 +132,7 @@ fun ArtistDetailView(
 
             // --- Albums Section (Horizontal) ---
             if (mainAlbums.isNotEmpty()) {
-                item(span = { GridItemSpan(2) }) {
+                item(span = { GridItemSpan(effectiveColumns) }) {
                     Column {
                         SectionHeader(title = "Albums", onExpandClick = { onExpandCategory("Albums") })
                         LazyRow(
@@ -156,7 +158,7 @@ fun ArtistDetailView(
 
             // --- Singles Section (Horizontal) ---
             if (singles.isNotEmpty()) {
-                item(span = { GridItemSpan(2) }) {
+                item(span = { GridItemSpan(effectiveColumns) }) {
                     Column {
                         SectionHeader(title = "Singles & EPs", onExpandClick = { onExpandCategory("Singles & EPs") })
                         LazyRow(
@@ -182,7 +184,7 @@ fun ArtistDetailView(
 
             // --- Unreleased Section ---
             if (unreleasedSongs.isNotEmpty()) {
-                item(span = { GridItemSpan(2) }) {
+                item(span = { GridItemSpan(effectiveColumns) }) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -218,7 +220,7 @@ fun ArtistDetailView(
 
             // --- Featured Section ---
             if (artist.featuredSongs.isNotEmpty()) {
-                item(span = { GridItemSpan(2) }) {
+                item(span = { GridItemSpan(effectiveColumns) }) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -254,7 +256,7 @@ fun ArtistDetailView(
 
             // --- Appears On Section (Albums featuring the artist) ---
             if (featuredAlbums.isNotEmpty()) {
-                item(span = { GridItemSpan(2) }) {
+                item(span = { GridItemSpan(effectiveColumns) }) {
                     Column {
                         SectionHeader(title = "Appears On", onExpandClick = { onExpandCategory("Appears On") })
                         LazyRow(
@@ -279,7 +281,7 @@ fun ArtistDetailView(
             }
 
             // --- All Songs Section ---
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(effectiveColumns) }) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -455,7 +457,11 @@ fun CategoryDetailView(
             )
         }
     ) { padding ->
-        val effectiveColumns = if (viewMode == CategoryViewMode.GRID) com.igorthepadna.play_pause.utils.calculateGridColumns(gridSizeMode) else 1
+        val effectiveColumns = when (viewMode) {
+            CategoryViewMode.GRID -> com.igorthepadna.play_pause.utils.calculateGridColumns(gridSizeMode)
+            CategoryViewMode.COMPACT -> 2
+            else -> 1
+        }
         val gridState = rememberLazyGridState()
         val bottomPadding = PaddingValues(
             top = 16.dp,
@@ -488,14 +494,10 @@ fun CategoryDetailView(
                                 columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
-                            CategoryViewMode.COMPACT -> UniversalSongItem(
+                            CategoryViewMode.COMPACT -> CompactGridItem(
                                 song = album.songs.first(),
                                 isPlaying = isPlaying,
                                 onClick = { onAlbumClick(album) },
-                                onDetailsClick = {},
-                                onSwipePlayNext = {},
-                                onSwipeAddToPlaylist = {},
-                                onNavigateToArtist = onNavigateToArtist,
                                 label = album.title,
                                 secondaryLabel = album.artist,
                                 artworkUri = album.artworkUri
@@ -527,14 +529,10 @@ fun CategoryDetailView(
                                 columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
-                            CategoryViewMode.COMPACT -> UniversalSongItem(
+                            CategoryViewMode.COMPACT -> CompactGridItem(
                                 song = album.songs.first(),
                                 isPlaying = isPlaying,
                                 onClick = { onAlbumClick(album) },
-                                onDetailsClick = {},
-                                onSwipePlayNext = {},
-                                onSwipeAddToPlaylist = {},
-                                onNavigateToArtist = onNavigateToArtist,
                                 label = album.title,
                                 secondaryLabel = album.artist,
                                 artworkUri = album.artworkUri
@@ -566,14 +564,10 @@ fun CategoryDetailView(
                                 columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
-                            CategoryViewMode.COMPACT -> UniversalSongItem(
+                            CategoryViewMode.COMPACT -> CompactGridItem(
                                 song = album.songs.first(),
                                 isPlaying = isPlaying,
                                 onClick = { onAlbumClick(album) },
-                                onDetailsClick = {},
-                                onSwipePlayNext = {},
-                                onSwipeAddToPlaylist = {},
-                                onNavigateToArtist = onNavigateToArtist,
                                 label = album.title,
                                 secondaryLabel = album.artist,
                                 artworkUri = album.artworkUri
@@ -612,15 +606,12 @@ fun CategoryDetailView(
                                 columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
-                            CategoryViewMode.COMPACT -> UniversalSongItem(
+                            CategoryViewMode.COMPACT -> CompactGridItem(
                                 song = song,
                                 isPlaying = isPlaying,
                                 onClick = { onPlaySpecificSongs(unreleasedSongs, unreleasedSongs.indexOf(song), null) },
-                                onDetailsClick = { onSongDetailsClick(song) },
-                                onSwipePlayNext = {},
-                                onSwipeAddToPlaylist = {},
-                                onNavigateToArtist = onNavigateToArtist,
-                                showArtist = false,
+                                label = song.title,
+                                secondaryLabel = if (title == "Unreleased") null else song.artist,
                                 artworkUri = albumArt
                             )
                             CategoryViewMode.DETAILED -> UniversalSongItem(
@@ -655,15 +646,12 @@ fun CategoryDetailView(
                                 columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
-                            CategoryViewMode.COMPACT -> UniversalSongItem(
+                            CategoryViewMode.COMPACT -> CompactGridItem(
                                 song = song,
                                 isPlaying = isPlaying,
                                 onClick = { onPlaySpecificSongs(featuredSongs, featuredSongs.indexOf(song), null) },
-                                onDetailsClick = { onSongDetailsClick(song) },
-                                onSwipePlayNext = {},
-                                onSwipeAddToPlaylist = {},
-                                onNavigateToArtist = onNavigateToArtist,
-                                showArtist = true,
+                                label = song.title,
+                                secondaryLabel = song.artist,
                                 artworkUri = albumArt
                             )
                             CategoryViewMode.DETAILED -> UniversalSongItem(
@@ -699,15 +687,12 @@ fun CategoryDetailView(
                                 columns = effectiveColumns,
                                 isPlaying = isPlaying
                             )
-                            CategoryViewMode.COMPACT -> UniversalSongItem(
+                            CategoryViewMode.COMPACT -> CompactGridItem(
                                 song = song,
                                 isPlaying = isPlaying,
                                 onClick = { onPlaySpecificSongs(allSongs, allSongs.indexOf(song), null) },
-                                onDetailsClick = { onSongDetailsClick(song) },
-                                onSwipePlayNext = {},
-                                onSwipeAddToPlaylist = {},
-                                onNavigateToArtist = onNavigateToArtist,
-                                showArtist = true,
+                                label = song.title,
+                                secondaryLabel = song.artist,
                                 artworkUri = albumArt
                             )
                             CategoryViewMode.DETAILED -> UniversalSongItem(

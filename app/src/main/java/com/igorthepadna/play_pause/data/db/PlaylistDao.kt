@@ -84,6 +84,16 @@ interface PlaylistDao {
         insertPlaylistSong(PlaylistSongEntity(playlistId, songId, currentMaxPosition + 1))
     }
 
+    @Query("UPDATE playlist_songs SET position = :newPos WHERE playlistId = :playlistId AND songId = :songId")
+    suspend fun updateSongPosition(playlistId: String, songId: Long, newPos: Int)
+
+    @Transaction
+    suspend fun reorderPlaylistSongs(playlistId: String, songs: List<PlaylistSongEntity>) {
+        songs.forEach { song ->
+            updateSongPosition(playlistId, song.songId, song.position)
+        }
+    }
+
     @Query("UPDATE playlists SET coverUri = :coverUri WHERE id = :playlistId")
     suspend fun updatePlaylistCover(playlistId: String, coverUri: String?)
 

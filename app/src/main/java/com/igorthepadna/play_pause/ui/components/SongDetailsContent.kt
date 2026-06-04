@@ -6,6 +6,8 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -159,6 +161,8 @@ fun SongDetailsContent(
         "Date" to "The release date or year of the song as stored in its metadata."
     )
 
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -166,8 +170,9 @@ fun SongDetailsContent(
                 alpha = entryAnim.value
                 translationY = (100.dp.toPx() * (1f - entryAnim.value))
             }
+            .verticalScroll(scrollState)
             .padding(horizontal = 24.dp, vertical = 24.dp)
-            .padding(bottom = 48.dp)
+            .padding(bottom = 32.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -226,53 +231,78 @@ fun SongDetailsContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilledTonalButton(
-                onClick = onShareClick,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = artworkColors.secondary.copy(alpha = 0.12f),
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                contentPadding = PaddingValues(horizontal = 8.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Share", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                FilledTonalButton(
+                    onClick = onShareClick,
+                    modifier = Modifier.weight(1f).height(40.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = artworkColors.secondary.copy(alpha = 0.12f),
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Share", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                Button(
+                    onClick = onDeleteClick,
+                    modifier = Modifier.weight(1f).height(40.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Delete", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
             }
 
-            FilledTonalButton(
-                onClick = onSkipSettingsClick,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = artworkColors.tertiary.copy(alpha = 0.12f),
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                contentPadding = PaddingValues(horizontal = 8.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Rounded.SettingsBackupRestore, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Skips", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            }
+                FilledTonalButton(
+                    onClick = onSkipSettingsClick,
+                    modifier = Modifier.weight(1f).height(40.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = artworkColors.tertiary.copy(alpha = 0.12f),
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Icon(Icons.Rounded.SettingsBackupRestore, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Skips", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
 
-            Button(
-                onClick = onDeleteClick,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                ),
-                contentPadding = PaddingValues(horizontal = 8.dp)
-            ) {
-                Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Delete", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                FilledTonalButton(
+                    onClick = { /* Placeholder for Edit */ },
+                    modifier = Modifier.weight(1f).height(40.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = artworkColors.primary.copy(alpha = 0.12f),
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Edit", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
             }
         }
 
@@ -347,30 +377,35 @@ fun SongDetailsContent(
                 .fillMaxWidth()
                 .clickable { onFolderClick(song.path) },
             shape = RoundedCornerShape(20.dp),
-            color = artworkColors.secondary.copy(alpha = 0.08f),
-            border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.15f))
+            color = artworkColors.secondary.copy(alpha = 0.12f),
+            border = BorderStroke(1.dp, artworkColors.secondary.copy(alpha = 0.25f))
         ) {
             Row(
                 modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(20.dp), tint = artworkColors.secondary)
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
+                Icon(
+                    Icons.Rounded.FolderOpen, 
+                    contentDescription = null, 
+                    modifier = Modifier.size(20.dp), 
+                    tint = artworkColors.secondary
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "File Location",
+                        text = "FILE LOCATION",
                         style = MaterialTheme.typography.labelSmall,
                         color = artworkColors.secondary,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.5.sp
                     )
-                    Spacer(Modifier.height(4.dp))
                     Text(
                         text = song.path,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            lineHeight = 16.sp
+                        ),
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                        lineHeight = 20.sp
+                        softWrap = true
                     )
                 }
             }
@@ -499,7 +534,7 @@ fun DetailPill(
     
     SuggestionChip(
         onClick = { layoutRect?.let { onClick?.invoke(it) } },
-        label = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold) },
+        label = { Text(text, fontWeight = FontWeight.Bold) },
         icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color) },
         shape = RoundedCornerShape(16.dp),
         colors = SuggestionChipDefaults.suggestionChipColors(

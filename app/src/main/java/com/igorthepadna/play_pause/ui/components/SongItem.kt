@@ -130,6 +130,170 @@ private fun SongArtwork(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun CompactGridItem(
+    song: Song,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    secondaryLabel: String? = null,
+    artworkUri: android.net.Uri? = null,
+    containerColor: Color? = null,
+    leadingContent: @Composable (() -> Unit)? = null
+) {
+    val backgroundColor = containerColor ?: if (isPlaying)
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+    else
+        Color.Transparent
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = MaterialTheme.shapes.medium,
+        color = backgroundColor
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (leadingContent != null) {
+                Box(
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .size(40.dp)
+                        .clip(MaterialTheme.shapes.small),
+                    contentAlignment = Alignment.Center
+                ) {
+                    leadingContent()
+                }
+            } else {
+                SongArtwork(
+                    song = song,
+                    hasTrackInfo = false,
+                    providedArtworkUri = artworkUri,
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .size(40.dp)
+                        .clip(MaterialTheme.shapes.small),
+                    size = 80
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label ?: song.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+                )
+                
+                val artistText = secondaryLabel ?: song.artist
+                Text(
+                    text = artistText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DetailedSongItem(
+    song: Song,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    onPlayClick: () -> Unit,
+    onDetailsClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onNavigateToArtist: ((String) -> Unit)? = null,
+    label: String? = null,
+    secondaryLabel: String? = null,
+    artworkUri: android.net.Uri? = null,
+    containerColor: Color? = null,
+) {
+    val backgroundColor = containerColor ?: if (isPlaying)
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+    else
+        Color.Transparent
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = MaterialTheme.shapes.large,
+        color = backgroundColor
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SongArtwork(
+                song = song,
+                hasTrackInfo = false,
+                providedArtworkUri = artworkUri,
+                modifier = Modifier
+                    .padding(end = 16.dp)
+                    .size(56.dp)
+                    .clip(MaterialTheme.shapes.medium),
+                size = 120
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label ?: song.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (isPlaying) FontWeight.ExtraBold else FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+                )
+                
+                val artistText = secondaryLabel ?: song.artist
+                ArtistSubtitle(
+                    artistText = artistText,
+                    style = MaterialTheme.typography.bodySmall,
+                    mainColor = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onPlayClick,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.PlayArrow,
+                        contentDescription = "Play",
+                        tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onDetailsClick,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "Details",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun UniversalSongItem(
     song: Song,
     isPlaying: Boolean,

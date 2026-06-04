@@ -529,17 +529,15 @@ private fun PlayerSongInfoSection(
                 }
             }
         }
-        Text(
-            text = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist",
+        ArtistSubtitle(
+            artistText = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist",
             style = MaterialTheme.typography.titleLarge.copy(
-                color = artworkColors.secondary,
                 fontWeight = FontWeight.Bold
             ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.clickable {
-                val artistName = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist"
-                val splitArtists = MusicRepository.splitArtists(artistName)
+            mainColor = artworkColors.secondary,
+            onArtistClick = { artistName ->
+                val fullArtistName = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown Artist"
+                val splitArtists = MusicRepository.splitArtists(fullArtistName)
                 if (splitArtists.size > 1) {
                     viewModel.showArtistSelection(splitArtists)
                 } else {
@@ -786,6 +784,7 @@ private fun PlayerQueueSheet(
     isQueueVisible: Boolean,
     artworkColors: ArtworkColors,
     player: Player,
+    viewModel: MainViewModel,
     onToggleQueue: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragStopped: suspend kotlinx.coroutines.CoroutineScope.(Float) -> Unit
@@ -832,7 +831,7 @@ private fun PlayerQueueSheet(
                 }
             }
             Box(modifier = Modifier.weight(1f)) {
-                QueueContent(player, artworkColors)
+                QueueContent(player, artworkColors, viewModel = viewModel)
             }
         }
     }
@@ -1133,6 +1132,7 @@ fun FullScreenPlayer(
                 isQueueVisible = isQueueVisible,
                 artworkColors = artworkColors,
                 player = player,
+                viewModel = viewModel,
                 onToggleQueue = {
                     scope.launch {
                         val target = if (isQueueVisible) closedValue else topPaddingPx

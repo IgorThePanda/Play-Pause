@@ -349,9 +349,18 @@ class MusicRepository(private val context: Context) {
     suspend fun getPlaylistSync(playlistId: String): Playlist? = playlistDao.getPlaylistById(playlistId)?.let { Playlist(it.id, it.name, emptyList(), it.isFavorite, it.coverUri?.let { u -> Uri.parse(u) }) }
     suspend fun removeSongFromPlaylist(playlistId: String, songId: Long) = playlistDao.removeSongFromPlaylist(playlistId, songId)
     fun getSongsForPlaylist(playlistId: String): Flow<List<Long>> = playlistDao.getSongsForPlaylist(playlistId).map { entities -> entities.map { it.songId } }
-    fun getPlaylistWithSongs(playlistId: String): Flow<Playlist?> = playlistDao.getPlaylistWithSongs(playlistId).map { p -> p?.let { Playlist(it.playlist.id, it.playlist.name, it.songs.map { it.songId }, it.playlist.isFavorite, it.playlist.coverUri?.let { u -> Uri.parse(u) }) } }
+    fun getPlaylistWithSongs(playlistId: String): Flow<Playlist?> = playlistDao.getPlaylistWithSongs(playlistId).map { p -> 
+        p?.let { 
+            val sortedSongs = it.songs.sortedBy { s -> s.position }
+            Playlist(it.playlist.id, it.playlist.name, sortedSongs.map { s -> s.songId }, it.playlist.isFavorite, it.playlist.coverUri?.let { u -> Uri.parse(u) }) 
+        } 
+    }
     suspend fun setPlaylistCover(playlistId: String, uri: Uri?) = playlistDao.updatePlaylistCover(playlistId, uri?.toString())
     suspend fun updatePlaylistName(playlistId: String, name: String) = playlistDao.updatePlaylistName(playlistId, name)
+    suspend fun getPlaylistWithSongsSync(playlistId: String) = playlistDao.getPlaylistWithSongsSync(playlistId)?.let {
+        it.copy(songs = it.songs.sortedBy { s -> s.position })
+    }
+    suspend fun reorderPlaylistSongs(playlistId: String, songs: List<PlaylistSongEntity>) = playlistDao.reorderPlaylistSongs(playlistId, songs)
 
     fun getAllPinnedItems() = playlistDao.getAllPinnedItems()
     suspend fun insertPinnedItem(item: com.igorthepadna.play_pause.data.db.PinnedItemEntity) = playlistDao.insertPinnedItem(item)

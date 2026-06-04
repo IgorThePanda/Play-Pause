@@ -78,6 +78,7 @@ fun AlbumCard(
     )
 
     val showDetails = columns <= 2
+    val showPlayButton = columns <= 3
     val showMetadata = columns < 4
     val showArtist = columns <= 2
     val showTitle = columns <= 3
@@ -132,7 +133,7 @@ fun AlbumCard(
                     AlbumCoverImage(artworkUri, size = if (columns > 2) 200 else 400)
                 }
 
-                if (showDetails) {
+                if (showPlayButton || showDetails) {
                     val accentColor = artworkColors.secondary
                     val isLightMode = MaterialTheme.colorScheme.surface.toArgb().let { colorInt ->
                         val hsl = FloatArray(3)
@@ -147,30 +148,34 @@ fun AlbumCard(
                         if (hsl[2] > 0.6f) Color.Black else Color.White
                     } else Color.White
 
-                    // 1. Song Count Pill (No Blur)
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp),
-                        shape = CircleShape,
-                        color = Color.Black.copy(alpha = 0.4f),
-                        contentColor = Color.White
-                    ) {
-                        Text(
-                            text = "$songCount",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                    // 1. Song Count Pill (No Blur) - Only show when we have room
+                    if (showDetails) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp),
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.4f),
+                            contentColor = Color.White
+                        ) {
+                            Text(
+                                text = "$songCount",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
                     }
 
                     // 2. Play Button
-                    if (onPlayClick != null) {
+                    if (onPlayClick != null && showPlayButton) {
+                        val buttonSize = if (columns <= 2) 42.dp else 36.dp
+                        val iconSize = if (columns <= 2) 24.dp else 20.dp
                         Surface(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(8.dp)
-                                .size(42.dp),
+                                .padding(if (columns <= 2) 8.dp else 6.dp)
+                                .size(buttonSize),
                             shape = CircleShape,
                             color = overlayBgColor,
                             contentColor = contentColor,
@@ -179,7 +184,7 @@ fun AlbumCard(
                             shadowElevation = 8.dp
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(24.dp))
+                                Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(iconSize))
                             }
                         }
                     }
@@ -197,7 +202,11 @@ fun AlbumCard(
                     if (showTitle) {
                         Text(
                             text = title,
-                            style = if (showDetails) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                            style = when {
+                                columns <= 2 -> MaterialTheme.typography.titleMedium
+                                columns == 3 -> MaterialTheme.typography.labelLarge
+                                else -> MaterialTheme.typography.bodySmall
+                            },
                             fontWeight = FontWeight.Black,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

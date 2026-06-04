@@ -21,6 +21,8 @@ import com.igorthepadna.play_pause.data.LyricsFilter
 import com.igorthepadna.play_pause.data.PinnedItem
 import com.igorthepadna.play_pause.data.PinnedType
 import com.igorthepadna.play_pause.data.db.PinnedItemEntity
+import com.igorthepadna.play_pause.data.db.PlaylistSongEntity
+import com.igorthepadna.play_pause.data.db.PlaylistWithSongs
 import com.igorthepadna.play_pause.data.db.AppDatabase
 import com.igorthepadna.play_pause.data.db.SkipRuleEntity
 import com.igorthepadna.play_pause.data.db.SkipType
@@ -47,7 +49,18 @@ import java.io.InputStream
 import java.io.OutputStream
 import android.app.PendingIntent
 import android.app.RecoverableSecurityException
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.drawable.VectorDrawable
 import android.os.Build
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
+import java.io.File
+import java.io.FileOutputStream
 import androidx.activity.result.IntentSenderRequest
 
 import com.igorthepadna.play_pause.ui.components.CategoryViewMode
@@ -506,7 +519,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         @Serializable
         data class Playlist(val id: String) : Selection()
         @Serializable
-        data class PlaylistInfo(val id: String) : Selection()
+        data class PlaylistEdit(val id: String) : Selection()
         @Serializable
         data class Genre(val name: String) : Selection()
         @Serializable
@@ -536,7 +549,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (artist != null) (artist to last.category) else null
             }
             is Selection.Playlist -> playlists.find { it.id == last.id }
-            is Selection.PlaylistInfo -> last
+            is Selection.PlaylistEdit -> last
             is Selection.Genre -> last.name
             is Selection.Stats -> "STATS"
         }
@@ -554,10 +567,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val selectedPlaylist = _selectionStack.map { it.lastOrNull() }.flatMapLatest { selection ->
-        if (selection is Selection.Playlist || selection is Selection.PlaylistInfo) {
+        if (selection is Selection.Playlist || selection is Selection.PlaylistEdit) {
             val id = when(selection) {
                 is Selection.Playlist -> selection.id
-                is Selection.PlaylistInfo -> selection.id
+                is Selection.PlaylistEdit -> selection.id
                 else -> ""
             }
             repository.getPlaylistWithSongs(id)
@@ -621,11 +634,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         setCurrentHubFilter(com.igorthepadna.play_pause.data.HubFilter.STATS)
     }
 
-    fun setSelectedPlaylistInfoId(id: String?) {
+    fun setSelectedPlaylistEditId(id: String?) {
         if (id == null) {
             clearSelections()
         } else {
-            _selectionStack.value = _selectionStack.value + Selection.PlaylistInfo(id)
+            _selectionStack.value = _selectionStack.value + Selection.PlaylistEdit(id)
             saveSelectionStack()
         }
     }
@@ -1059,9 +1072,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun moveSongInPlaylist(playlistId: String, fromPos: Int, toPos: Int) {
+        viewModelScope.launch {
+            val playlistWithSongs: PlaylistWithSongs = repository.getPlaylistWithSongsSync(playlistId) ?: return@launch
+            val songs: MutableList<PlaylistSongEntity> = playlistWithSongs.songs.toMutableList()
+            if (fromPos < 0 || fromPos >= songs.size || toPos < 0 || toPos >= songs.size) return@launch
+            
+            val movedItem = songs.removeAt(fromPos)
+            songs.add(toPos, movedItem)
+            
+            // Re-assign positions
+            val updatedSongs = songs.mapIndexed { index, song ->
+                song.copy(position = index)
+            }
+            
+            repository.reorderPlaylistSongs(playlistId, updatedSongs)
+        }
+    }
+
+    fun moveMediaItem(from: Int, to: Int) {
+        _player.value?.moveMediaItem(from, to)
+    }
+
+    fun generatePlaylistThumbnail(playlistId: String, iconResId: Int, backgroundColor: Color) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val size = 512
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            
+            // Draw background
+            val paint = Paint().apply {
+                color = backgroundColor.toArgb()
+                isAntiAlias = true
+            }
+            canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), paint)
+            
+            // Draw icon
+            val drawable = ContextCompat.getDrawable(getApplication(), iconResId)
+            drawable?.let {
+                val iconSize = (size * 0.6f).toInt()
+                val left = (size - iconSize) / 2
+                val top = (size - iconSize) / 2
+                it.setBounds(left, top, left + iconSize, top + iconSize)
+                it.setTint(Color.White.toArgb()) // Or dynamic based on background
+                it.draw(canvas)
+            }
+            
+            // Save to file
+            val file = File(getApplication<Application>().cacheDir, "playlist_thumb_${playlistId}_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            
+            withContext(Dispatchers.Main) {
+                setPlaylistCover(playlistId, Uri.fromFile(file))
+            }
+        }
+    }
+
     fun setPlaylistCover(playlistId: String, uri: Uri?) {
         viewModelScope.launch {
             repository.setPlaylistCover(playlistId, uri)
+        }
+    }
+
+    fun setPlaylistCover(playlistId: String, bitmap: Bitmap) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val file = File(getApplication<Application>().cacheDir, "playlist_thumb_${playlistId}_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            withContext(Dispatchers.Main) {
+                setPlaylistCover(playlistId, Uri.fromFile(file))
+            }
         }
     }
 

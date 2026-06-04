@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -20,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -41,6 +43,7 @@ import com.igorthepadna.play_pause.utils.verticalScrollbar
 
 import com.igorthepadna.play_pause.data.db.SkipRuleEntity
 import com.igorthepadna.play_pause.data.db.SkipType
+import com.igorthepadna.play_pause.MainViewModel
 
 private data class QueueItem(
     val indexInPlayer: Int,
@@ -54,9 +57,11 @@ private data class QueueItem(
 fun QueueContent(
     player: Player,
     artworkColors: ArtworkColors,
-    allSkipRules: List<SkipRuleEntity> = emptyList()
+    allSkipRules: List<SkipRuleEntity> = emptyList(),
+    viewModel: MainViewModel? = null
 ) {
     val haptic = LocalHapticFeedback.current
+    val currentViewModelState = rememberUpdatedState(viewModel)
     
     var shuffleModeEnabled by remember { mutableStateOf(player.shuffleModeEnabled) }
     var repeatMode by remember { mutableIntStateOf(player.repeatMode) }
@@ -260,7 +265,8 @@ fun QueueContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(IntrinsicSize.Min) // Important for fillMaxHeight to work
-                            .padding(start = if (isPlayNext) 24.dp else 0.dp), // Increased indentation for sub-dir feel
+                            .padding(start = if (isPlayNext) 24.dp else 0.dp)
+                            .animateItem(), // Added animation
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (isPlayNext) {
@@ -349,11 +355,48 @@ fun QueueContent(
                                             modifier = Modifier.size(24.dp)
                                         )
                                     } else {
+                                        var accumulatedDrag by remember(item.mediaId) { mutableStateOf(0f) }
+                                        val threshold = with(LocalDensity.current) { 16.dp.toPx() } // Smoother threshold
+
                                         Icon(
                                             Icons.Rounded.DragHandle,
                                             contentDescription = "Reorder",
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .pointerInput(player, item.mediaId) {
+                                                    detectVerticalDragGestures(
+                                                        onDragStart = { 
+                                                            accumulatedDrag = 0f
+                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        },
+                                                        onVerticalDrag = { change, dragAmount ->
+                                                            accumulatedDrag += dragAmount
+                                                            
+                                                            // Find current index of this item in the player
+                                                            var currentPos = -1
+                                                            for (idx in 0 until player.mediaItemCount) {
+                                                                if (player.getMediaItemAt(idx).mediaId == item.mediaId) {
+                                                                    currentPos = idx
+                                                                    break
+                                                                }
+                                                            }
+                                                            
+                                                            if (currentPos != -1) {
+                                                                if (accumulatedDrag > threshold && currentPos < player.mediaItemCount - 1) {
+                                                                    currentViewModelState.value?.moveMediaItem(currentPos, currentPos + 1)
+                                                                    accumulatedDrag = 0f
+                                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) // Weaker vibration
+                                                                } else if (accumulatedDrag < -threshold && currentPos > 0) {
+                                                                    currentViewModelState.value?.moveMediaItem(currentPos, currentPos - 1)
+                                                                    accumulatedDrag = 0f
+                                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) // Weaker vibration
+                                                                }
+                                                            }
+                                                            change.consume()
+                                                        }
+                                                    )
+                                                }
                                         )
                                     }
                                 }
