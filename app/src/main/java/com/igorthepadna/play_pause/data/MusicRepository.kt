@@ -87,7 +87,26 @@ class MusicRepository(private val context: Context) {
 
         val songList = mutableListOf<Song>()
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL) else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.SIZE, MediaStore.Audio.Media.MIME_TYPE, MediaStore.Audio.Media.DATE_ADDED, MediaStore.Audio.Media.TRACK, MediaStore.Audio.Media.DISC_NUMBER, "album_artist", MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.YEAR)
+        val projection = mutableListOf(
+            MediaStore.Audio.Media._ID, 
+            MediaStore.Audio.Media.TITLE, 
+            MediaStore.Audio.Media.ARTIST, 
+            MediaStore.Audio.Media.ALBUM, 
+            MediaStore.Audio.Media.DURATION, 
+            MediaStore.Audio.Media.DATA, 
+            MediaStore.Audio.Media.SIZE, 
+            MediaStore.Audio.Media.MIME_TYPE, 
+            MediaStore.Audio.Media.DATE_ADDED, 
+            MediaStore.Audio.Media.TRACK, 
+            MediaStore.Audio.Media.DISC_NUMBER, 
+            "album_artist", 
+            MediaStore.Audio.Media.ALBUM_ID, 
+            MediaStore.Audio.Media.YEAR
+        ).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                add(MediaStore.Audio.Media.GENRE)
+            }
+        }.toTypedArray()
 
         var selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         val selectionArgs = mutableListOf<String>()
@@ -114,6 +133,7 @@ class MusicRepository(private val context: Context) {
             val albArtCol = cursor.getColumnIndex("album_artist")
             val albIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val yearCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
+            val genreCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.GENRE) else -1
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idCol)
@@ -134,7 +154,8 @@ class MusicRepository(private val context: Context) {
                     path = path, size = cursor.getLong(sizeCol), format = cursor.getString(mimeCol) ?: "",
                     dateAdded = cursor.getLong(dateCol), trackNumber = track, discNumber = if (disc == 0) 1 else disc,
                     albumArtist = if (albArtCol != -1) cursor.getString(albArtCol) else null, albumId = cursor.getLong(albIdCol),
-                    year = cursor.getInt(yearCol), bitrate = if (cursor.getLong(durCol) > 0) "${(cursor.getLong(sizeCol) * 8 / cursor.getLong(durCol)).toInt()} kbps" else null,
+                    year = cursor.getInt(yearCol), genre = if (genreCol != -1) cursor.getString(genreCol) else null,
+                    bitrate = if (cursor.getLong(durCol) > 0) "${(cursor.getLong(sizeCol) * 8 / cursor.getLong(durCol)).toInt()} kbps" else null,
                     lyrics = null // Fetch in background later
                 ))
             }
@@ -143,7 +164,7 @@ class MusicRepository(private val context: Context) {
         cachedSongs = songList; cachedAlbums = null; cachedArtists = null; songList
     }
 
-    private fun Song.toEntity() = SongEntity(id, title, artist, album, duration, uri.toString(), albumArtUri?.toString(), path, size, format, dateAdded, trackNumber, discNumber, albumArtist, albumId, year, lyrics)
+    private fun Song.toEntity() = SongEntity(id, title, artist, album, duration, uri.toString(), albumArtUri?.toString(), path, size, format, dateAdded, trackNumber, discNumber, albumArtist, albumId, year, genre, lyrics)
     private fun SongEntity.toDomain(): Song {
         val (cleanTitle, cleanArtist) = processSongMetadata(title, artist)
         val cleanAlbum = cleanTitle(album)
@@ -153,6 +174,7 @@ class MusicRepository(private val context: Context) {
             size = size, format = format, dateAdded = dateAdded, 
             trackNumber = if (trackNumber >= 1000) trackNumber % 1000 else trackNumber, 
             discNumber = discNumber, albumArtist = albumArtist, albumId = albumId, year = year, 
+            genre = genre,
             bitrate = if (duration > 0) "${(size * 8 / duration).toInt()} kbps" else null,
             lyrics = lyrics
         )
@@ -375,7 +397,7 @@ class MusicRepository(private val context: Context) {
             val songsWith = playlistDao.getPlaylistWithSongsSync(p.id)
             val songs = songsWith?.songs?.mapNotNull { ps -> 
                 cachedSongs?.find { it.id == ps.songId }?.let { s -> 
-                    SongBackup(s.title, s.artist, s.album, s.duration, s.path, s.id) 
+                    SongBackup(s.title, s.artist, s.album, s.duration, s.path, s.id, s.genre) 
                 } 
             } ?: emptyList()
             PlaylistBackupV2(p, songs)
@@ -429,7 +451,7 @@ class MusicRepository(private val context: Context) {
         val playlists = playlistDao.getAllPlaylistsSync()
         val backups = playlists.map { p ->
             val songsWith = playlistDao.getPlaylistWithSongsSync(p.id)
-            val songs = songsWith?.songs?.mapNotNull { ps -> cachedSongs?.find { it.id == ps.songId }?.let { s -> SongBackup(s.title, s.artist, s.album, s.duration, s.path, s.id) } } ?: emptyList()
+            val songs = songsWith?.songs?.mapNotNull { ps -> cachedSongs?.find { it.id == ps.songId }?.let { s -> SongBackup(s.title, s.artist, s.album, s.duration, s.path, s.id, s.genre) } } ?: emptyList()
             PlaylistBackupV2(p, songs)
         }
         val playEvents = statsDao.getAllPlayEventsSync()
@@ -439,7 +461,7 @@ class MusicRepository(private val context: Context) {
     suspend fun exportSinglePlaylist(playlistId: String, outputStream: OutputStream) {
         val entity = playlistDao.getPlaylistById(playlistId) ?: return
         val songsWith = playlistDao.getPlaylistWithSongsSync(playlistId)
-        val songs = songsWith?.songs?.mapNotNull { ps -> cachedSongs?.find { it.id == ps.songId }?.let { s -> SongBackup(s.title, s.artist, s.album, s.duration, s.path, s.id) } } ?: emptyList()
+        val songs = songsWith?.songs?.mapNotNull { ps -> cachedSongs?.find { it.id == ps.songId }?.let { s -> SongBackup(s.title, s.artist, s.album, s.duration, s.path, s.id, s.genre) } } ?: emptyList()
         outputStream.use { it.write(jsonSerializer.encodeToString(PlaylistBackupV2(entity, songs)).toByteArray()) }
     }
 

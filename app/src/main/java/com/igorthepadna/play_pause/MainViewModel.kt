@@ -34,6 +34,8 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
@@ -65,12 +67,26 @@ import androidx.activity.result.IntentSenderRequest
 
 import com.igorthepadna.play_pause.ui.components.CategoryViewMode
 
+import com.igorthepadna.play_pause.data.remote.LastfmService
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import okhttp3.MediaType.Companion.toMediaType
+import com.igorthepadna.play_pause.data.FriendActivity
+import com.igorthepadna.play_pause.data.LastfmUser
+import com.igorthepadna.play_pause.data.LastfmTrack
+
 enum class ThemeMode {
     LIGHT, DARK, AUTO
 }
 
 enum class ColorSchemeType {
     DYNAMIC, VIBRANT, PURPLE, BLUE, GREEN, ORANGE
+}
+
+enum class PlaybackNavMode {
+    SWIPE, BUTTONS
 }
 
 data class TabSortSettings(
@@ -100,6 +116,85 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing = _isRefreshing.asStateFlow()
+
+    private val _lastfmUsername = MutableStateFlow(prefs.getString("lastfm_username", "") ?: "")
+    val lastfmUsername = _lastfmUsername.asStateFlow()
+
+    private val _lastfmFriendsActivity = MutableStateFlow<List<FriendActivity>>(emptyList())
+    val lastfmFriendsActivity = _lastfmFriendsActivity.asStateFlow()
+
+    private val _isLastfmLoading = MutableStateFlow(false)
+    val isLastfmLoading = _isLastfmLoading.asStateFlow()
+
+    private val lastfmApiKey = "YOUR_LASTFM_API_KEY" // Placeholder
+
+    private val lastfmService: LastfmService by lazy {
+        val logging = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .build()
+
+        val json = Json { 
+            ignoreUnknownKeys = true 
+            coerceInputValues = true
+        }
+        
+        Retrofit.Builder()
+            .baseUrl("https://ws.audioscrobbler.com/2.0/")
+            .client(client)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(LastfmService::class.java)
+    }
+
+    fun setLastfmUsername(username: String) {
+        _lastfmUsername.value = username
+        prefs.edit().putString("lastfm_username", username).apply()
+        if (username.isNotBlank()) {
+            refreshLastfmFriends()
+        }
+    }
+
+    fun refreshLastfmFriends() {
+        val user = _lastfmUsername.value
+        if (user.isBlank()) return
+
+        viewModelScope.launch {
+            _isLastfmLoading.value = true
+            try {
+                val friendsResponse = lastfmService.getFriends(user, lastfmApiKey)
+                val friends = friendsResponse.friends.user
+                
+                val activityList = mutableListOf<FriendActivity>()
+                
+                // Fetch recent tracks for each friend in parallel
+                friends.chunked(5).forEach { chunk ->
+                    val results = chunk.map { friend ->
+                        async {
+                            try {
+                                val recent = lastfmService.getRecentTracks(friend.name, lastfmApiKey)
+                                FriendActivity(friend, recent.recenttracks.track.firstOrNull())
+                            } catch (e: Exception) {
+                                FriendActivity(friend, null)
+                            }
+                        }
+                    }.awaitAll()
+                    activityList.addAll(results)
+                }
+                
+                _lastfmFriendsActivity.value = activityList.sortedWith(
+                    compareByDescending<FriendActivity> { it.currentTrack?.attr?.nowplaying == "true" }
+                        .thenByDescending { it.currentTrack?.date?.uts?.toLongOrNull() ?: 0L }
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                _isLastfmLoading.value = false
+            }
+        }
+    }
 
     private val _player = MutableStateFlow<Player?>(null)
     val player = _player.asStateFlow()
@@ -153,6 +248,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _navBarAtTop = MutableStateFlow(prefs.getBoolean("navbar_at_top", false))
     val navBarAtTop = _navBarAtTop.asStateFlow()
 
+    private val _invertFullScreenTimer = MutableStateFlow(prefs.getBoolean("invert_fullscreen_timer", false))
+    val invertFullScreenTimer = _invertFullScreenTimer.asStateFlow()
+
+    private val _playbackNavMode = MutableStateFlow(
+        runCatching { PlaybackNavMode.valueOf(prefs.getString("playback_nav_mode", PlaybackNavMode.SWIPE.name)!!) }.getOrDefault(PlaybackNavMode.SWIPE)
+    )
+    val playbackNavMode = _playbackNavMode.asStateFlow()
+
     enum class PlayNextBehavior { TOP, BOTTOM }
 
     private val _playNextBehavior = MutableStateFlow(
@@ -170,6 +273,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _navBarOrder = MutableStateFlow(
         prefs.getString("navbar_order", null)?.split(",")?.mapNotNull { name ->
             runCatching { LibraryFilter.valueOf(name) }.getOrNull()
+        }?.let { saved ->
+            val missing = LibraryFilter.entries.filter { it !in saved }
+            if (missing.contains(LibraryFilter.FRIENDS)) {
+                val mutable = saved.toMutableList()
+                // Insert after Artists (usually index 2)
+                val artistsIdx = mutable.indexOf(LibraryFilter.ARTISTS)
+                if (artistsIdx != -1) mutable.add(artistsIdx + 1, LibraryFilter.FRIENDS)
+                else mutable.add(LibraryFilter.FRIENDS)
+                mutable + missing.filter { it != LibraryFilter.FRIENDS }
+            } else {
+                saved + missing
+            }
         } ?: LibraryFilter.entries
     )
     val navBarOrder = _navBarOrder.asStateFlow()
@@ -182,6 +297,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _hubOrder = MutableStateFlow(
         prefs.getString("hub_order", null)?.split(",")?.mapNotNull { name ->
             runCatching { com.igorthepadna.play_pause.data.HubFilter.valueOf(name) }.getOrNull()
+        }?.let { saved ->
+            // Ensure any new filters added to the enum are included
+            val missing = com.igorthepadna.play_pause.data.HubFilter.entries.filter { it !in saved }
+            if (missing.contains(com.igorthepadna.play_pause.data.HubFilter.FRIENDS)) {
+                // Special case: move Friends to the second position if just added
+                val mutable = saved.toMutableList()
+                if (mutable.size > 1) mutable.add(1, com.igorthepadna.play_pause.data.HubFilter.FRIENDS)
+                else mutable.add(com.igorthepadna.play_pause.data.HubFilter.FRIENDS)
+                mutable + missing.filter { it != com.igorthepadna.play_pause.data.HubFilter.FRIENDS }
+            } else {
+                saved + missing
+            }
         } ?: com.igorthepadna.play_pause.data.HubFilter.entries
     )
     val hubOrder = _hubOrder.asStateFlow()
@@ -679,6 +806,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setNavBarAtTop(top: Boolean) {
         _navBarAtTop.value = top
         prefs.edit().putBoolean("navbar_at_top", top).apply()
+    }
+
+    fun setInvertFullScreenTimer(invert: Boolean) {
+        _invertFullScreenTimer.value = invert
+        prefs.edit().putBoolean("invert_fullscreen_timer", invert).apply()
+    }
+
+    fun setPlaybackNavMode(mode: PlaybackNavMode) {
+        _playbackNavMode.value = mode
+        prefs.edit().putString("playback_nav_mode", mode.name).apply()
     }
 
     fun setPlayNextBehavior(behavior: PlayNextBehavior) {
@@ -1358,6 +1495,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _useArtworkAccent.value = prefs.getBoolean("use_artwork_accent", true)
         _showBitrateInfo.value = prefs.getBoolean("show_bitrate_info", true)
         _navBarAtTop.value = prefs.getBoolean("nav_bar_at_top", false)
+        _invertFullScreenTimer.value = prefs.getBoolean("invert_fullscreen_timer", false)
+        _playbackNavMode.value = runCatching { PlaybackNavMode.valueOf(prefs.getString("playback_nav_mode", PlaybackNavMode.SWIPE.name)!!) }.getOrDefault(PlaybackNavMode.SWIPE)
         _gaplessPlayback.value = prefs.getBoolean("gapless_playback", true)
         _scanOnlyMusicFolder.value = prefs.getBoolean("scan_only_music", false)
         _lyricFontSize.value = prefs.getFloat("lyric_font_size", 28f)
@@ -1375,10 +1514,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Specifically refresh list-based settings
         _navBarOrder.value = prefs.getString("navbar_order", null)?.split(",")?.mapNotNull { name ->
             runCatching { LibraryFilter.valueOf(name) }.getOrNull()
+        }?.let { saved ->
+            val missing = LibraryFilter.entries.filter { it !in saved }
+            if (missing.contains(LibraryFilter.FRIENDS)) {
+                val mutable = saved.toMutableList()
+                val artistsIdx = mutable.indexOf(LibraryFilter.ARTISTS)
+                if (artistsIdx != -1) mutable.add(artistsIdx + 1, LibraryFilter.FRIENDS)
+                else mutable.add(LibraryFilter.FRIENDS)
+                mutable + missing.filter { it != LibraryFilter.FRIENDS }
+            } else {
+                saved + missing
+            }
         } ?: LibraryFilter.entries
 
         _hubOrder.value = prefs.getString("hub_order", null)?.split(",")?.mapNotNull { name ->
             runCatching { com.igorthepadna.play_pause.data.HubFilter.valueOf(name) }.getOrNull()
+        }?.let { saved ->
+            val missing = com.igorthepadna.play_pause.data.HubFilter.entries.filter { it !in saved }
+            if (missing.contains(com.igorthepadna.play_pause.data.HubFilter.FRIENDS)) {
+                val mutable = saved.toMutableList()
+                if (mutable.size > 1) mutable.add(1, com.igorthepadna.play_pause.data.HubFilter.FRIENDS)
+                else mutable.add(com.igorthepadna.play_pause.data.HubFilter.FRIENDS)
+                mutable + missing.filter { it != com.igorthepadna.play_pause.data.HubFilter.FRIENDS }
+            } else {
+                saved + missing
+            }
         } ?: com.igorthepadna.play_pause.data.HubFilter.entries
     }
 

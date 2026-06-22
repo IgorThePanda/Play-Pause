@@ -34,6 +34,7 @@ data class SongEntity(
     val albumArtist: String?,
     val albumId: Long,
     val year: Int,
+    val genre: String? = null,
     val lyrics: String? = null
 )
 
@@ -88,7 +89,8 @@ data class SongBackup(
     val album: String,
     val duration: Long,
     val path: String,
-    val mediaStoreId: Long // Reference for matching if possible
+    val mediaStoreId: Long, // Reference for matching if possible
+    val genre: String? = null
 )
 
 @Serializable

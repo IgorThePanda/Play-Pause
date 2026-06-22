@@ -55,7 +55,7 @@ import com.igorthepadna.play_pause.data.SortOrder
 import com.igorthepadna.play_pause.data.SortType
 
 enum class SettingsTab {
-    MAIN, PLAYBACK, APPEARANCE, LYRICS_EDITOR, LIBRARY, BACKUP, PLAYLIST_EXPORT, ABOUT
+    MAIN, PLAYBACK, APPEARANCE, LYRICS_EDITOR, LIBRARY, BACKUP, PLAYLIST_EXPORT, ABOUT, LASTFM
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,6 +119,10 @@ fun MainSettingsScreen(
             SettingsTab.ABOUT -> AboutScreen(
                 onBack = { currentTab = SettingsTab.MAIN }
             )
+            SettingsTab.LASTFM -> LastfmSettingsScreen(
+                viewModel = viewModel,
+                onBack = { currentTab = SettingsTab.MAIN }
+            )
         }
     }
 }
@@ -179,6 +183,12 @@ fun MainSettingsCategories(
                 subtitle = "App version and developer information",
                 icon = Icons.Rounded.Info,
                 onClick = { onNavigate(SettingsTab.ABOUT) }
+            )
+            CategoryCard(
+                title = "Last.fm",
+                subtitle = "Connect for friends activity and scrobbling",
+                icon = Icons.Rounded.People,
+                onClick = { onNavigate(SettingsTab.LASTFM) }
             )
             
             Spacer(Modifier.height(100.dp))
@@ -332,6 +342,8 @@ fun AppearanceSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNav
             val colorSchemeType by viewModel.colorSchemeType.collectAsStateWithLifecycle()
             val useArtworkAccent by viewModel.useArtworkAccent.collectAsStateWithLifecycle()
             val showBitrateInfo by viewModel.showBitrateInfo.collectAsStateWithLifecycle()
+            val invertTimer by viewModel.invertFullScreenTimer.collectAsStateWithLifecycle()
+            val playbackNavMode by viewModel.playbackNavMode.collectAsStateWithLifecycle()
             val navBarAtTop by viewModel.navBarAtTop.collectAsStateWithLifecycle()
 
             SettingsSection(title = "Theming") {
@@ -405,6 +417,34 @@ fun AppearanceSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit, onNav
                     checked = showBitrateInfo,
                     onCheckedChange = { viewModel.setShowBitrateInfo(it) }
                 )
+                SettingsSwitchItem(
+                    title = "Invert Player Timer",
+                    subtitle = "Show remaining time instead of total duration",
+                    icon = Icons.Rounded.Timer,
+                    checked = invertTimer,
+                    onCheckedChange = { viewModel.setInvertFullScreenTimer(it) }
+                )
+            }
+
+            SettingsSection(title = "Now Playing Bar") {
+                SettingsHeaderItem(title = "Playback Navigation Style")
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ThemeOptionChip(
+                        selected = playbackNavMode == PlaybackNavMode.SWIPE,
+                        label = "Swipe Gestures",
+                        onClick = { viewModel.setPlaybackNavMode(PlaybackNavMode.SWIPE) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionChip(
+                        selected = playbackNavMode == PlaybackNavMode.BUTTONS,
+                        label = "Skip Buttons",
+                        onClick = { viewModel.setPlaybackNavMode(PlaybackNavMode.BUTTONS) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
 
             SettingsSection(title = "Lyrics") {
@@ -1060,6 +1100,69 @@ fun LyricSettingsScreen(
             }
             
             Spacer(Modifier.height(40.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LastfmSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
+    val username by viewModel.lastfmUsername.collectAsStateWithLifecycle()
+    var tempUsername by remember { mutableStateOf(username) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Last.fm", fontWeight = FontWeight.Black) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            SettingsSection(title = "Account") {
+                Text(
+                    "Link your account to see what your friends are listening to in the Home Hub.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(12.dp)
+                )
+                
+                OutlinedTextField(
+                    value = tempUsername,
+                    onValueChange = { tempUsername = it },
+                    label = { Text("Last.fm Username") },
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    singleLine = true
+                )
+                
+                Button(
+                    onClick = { viewModel.setLastfmUsername(tempUsername) },
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    enabled = tempUsername != username
+                ) {
+                    Text("Save Username", fontWeight = FontWeight.Bold)
+                }
+            }
+            
+            if (username.isNotBlank()) {
+                SettingsSection(title = "Options") {
+                    SettingsActionItem(
+                        title = "Refresh Activity",
+                        subtitle = "Force update friends activity now",
+                        icon = Icons.Rounded.Refresh,
+                        onClick = { viewModel.refreshLastfmFriends() }
+                    )
+                }
+            }
         }
     }
 }

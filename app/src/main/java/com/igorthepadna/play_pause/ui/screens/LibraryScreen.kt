@@ -52,6 +52,7 @@ import com.igorthepadna.play_pause.ui.components.GenreDetailView
 import com.igorthepadna.play_pause.ui.components.playlists.PlaylistView
 import com.igorthepadna.play_pause.ui.components.playlists.PlaylistDetailView
 import com.igorthepadna.play_pause.data.Playlist
+import com.igorthepadna.play_pause.ui.screens.FriendsHubView
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.ui.unit.sp
@@ -1018,8 +1019,17 @@ private fun MainLibraryContent(
                         }
                     }
                 }
+                LibraryFilter.FRIENDS -> {
+                    FriendsHubView(
+                        viewModel = viewModel!!,
+                        contentPadding = contentPadding
+                    )
+                }
                 else -> Box(modifier = Modifier.fillMaxSize()) {
-                    val categoryKey = "library_songs"
+                    val categoryKey = when(filter) {
+                        LibraryFilter.FILE_SYSTEM -> "library_files"
+                        else -> "library_songs"
+                    }
                     val settings = viewModeSettings[categoryKey] ?: ViewModeSettings(viewMode = CategoryViewMode.DETAILED)
                     val effectiveColumns = if (settings.viewMode == CategoryViewMode.GRID) calculateGridColumns(settings.gridSizeMode) else if (settings.viewMode == CategoryViewMode.COMPACT) 2 else 1
                     

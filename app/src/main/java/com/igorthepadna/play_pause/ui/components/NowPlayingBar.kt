@@ -144,6 +144,7 @@ fun NowPlayingBar(
     }
 
     val hasMedia = currentSong != null
+    val playbackNavMode by viewModel?.playbackNavMode?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(com.igorthepadna.play_pause.PlaybackNavMode.SWIPE) }
 
     Box(
         modifier = modifier
@@ -178,7 +179,8 @@ fun NowPlayingBar(
                         skipDragAction = skipDragAction,
                         onSkipDragActionChange = { skipDragAction = it },
                         skipTotalDragOffset = skipTotalDragOffset,
-                        onSkipTotalDragOffsetChange = { skipTotalDragOffset = it }
+                        onSkipTotalDragOffsetChange = { skipTotalDragOffset = it },
+                        playbackNavMode = playbackNavMode
                     )
                 }
 
@@ -486,7 +488,8 @@ private fun PlaybackSection(
     skipDragAction: DragAction,
     onSkipDragActionChange: (DragAction) -> Unit,
     skipTotalDragOffset: Offset,
-    onSkipTotalDragOffsetChange: (Offset) -> Unit
+    onSkipTotalDragOffsetChange: (Offset) -> Unit,
+    playbackNavMode: com.igorthepadna.play_pause.PlaybackNavMode = com.igorthepadna.play_pause.PlaybackNavMode.SWIPE
 ) {
     var isPlaying by remember { mutableStateOf(player?.isPlaying ?: false) }
     var currentPosition by remember { mutableLongStateOf(player?.currentPosition ?: 0L) }
@@ -556,59 +559,63 @@ private fun PlaybackSection(
                 .combinedClickable(
                     onClick = onClick
                 )
-                .pointerInput(Unit) {
-                    var localAccumulatedOffset = Offset.Zero
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { 
-                            localAccumulatedOffset = Offset.Zero
-                            onIsSkipDraggingChange(true)
-                            onSkipTotalDragOffsetChange(Offset.Zero)
-                            onSkipDragActionChange(DragAction.NONE)
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        onDragEnd = {
-                            onIsSkipDraggingChange(false)
-                            when (skipDragAction) {
-                                DragAction.PREVIOUS -> viewModel?.skipPrevious(player)
-                                DragAction.NEXT -> player?.seekToNext()
-                                DragAction.NONE -> player?.seekTo(currentPosition)
-                            }
-                            onSkipDragActionChange(DragAction.NONE)
-                        },
-                        onDragCancel = { 
-                            onIsSkipDraggingChange(false)
-                            onSkipDragActionChange(DragAction.NONE)
-                        },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            localAccumulatedOffset += dragAmount
-                            onSkipTotalDragOffsetChange(localAccumulatedOffset)
-                            
-                            val skipThreshold = with(density) { 80.dp.toPx() }
-                            
-                            if (localAccumulatedOffset.y < -skipThreshold) {
-                                val horizontalThreshold = with(density) { 24.dp.toPx() }
-                                val nextAction = when {
-                                    localAccumulatedOffset.x < -horizontalThreshold -> DragAction.PREVIOUS
-                                    localAccumulatedOffset.x > horizontalThreshold -> DragAction.NEXT
-                                    else -> DragAction.NONE
-                                }
-                                if (nextAction != skipDragAction) {
-                                    onSkipDragActionChange(nextAction)
-                                    if (nextAction != DragAction.NONE) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                .then(
+                    if (playbackNavMode == com.igorthepadna.play_pause.PlaybackNavMode.SWIPE) {
+                        Modifier.pointerInput(Unit) {
+                            var localAccumulatedOffset = Offset.Zero
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { 
+                                    localAccumulatedOffset = Offset.Zero
+                                    onIsSkipDraggingChange(true)
+                                    onSkipTotalDragOffsetChange(Offset.Zero)
+                                    onSkipDragActionChange(DragAction.NONE)
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                onDragEnd = {
+                                    onIsSkipDraggingChange(false)
+                                    when (skipDragAction) {
+                                        DragAction.PREVIOUS -> viewModel?.skipPrevious(player)
+                                        DragAction.NEXT -> player?.seekToNext()
+                                        DragAction.NONE -> player?.seekTo(currentPosition)
+                                    }
+                                    onSkipDragActionChange(DragAction.NONE)
+                                },
+                                onDragCancel = { 
+                                    onIsSkipDraggingChange(false)
+                                    onSkipDragActionChange(DragAction.NONE)
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    localAccumulatedOffset += dragAmount
+                                    onSkipTotalDragOffsetChange(localAccumulatedOffset)
+                                    
+                                    val skipThreshold = with(density) { 80.dp.toPx() }
+                                    
+                                    if (localAccumulatedOffset.y < -skipThreshold) {
+                                        val horizontalThreshold = with(density) { 24.dp.toPx() }
+                                        val nextAction = when {
+                                            localAccumulatedOffset.x < -horizontalThreshold -> DragAction.PREVIOUS
+                                            localAccumulatedOffset.x > horizontalThreshold -> DragAction.NEXT
+                                            else -> DragAction.NONE
+                                        }
+                                        if (nextAction != skipDragAction) {
+                                            onSkipDragActionChange(nextAction)
+                                            if (nextAction != DragAction.NONE) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            }
+                                        }
+                                    } else {
+                                        onSkipDragActionChange(DragAction.NONE)
+                                        val dragFactor = 150L 
+                                        val newPos = (currentPosition + (dragAmount.x * dragFactor).toLong())
+                                            .coerceIn(0L, duration)
+                                        currentPosition = newPos
                                     }
                                 }
-                            } else {
-                                onSkipDragActionChange(DragAction.NONE)
-                                val dragFactor = 150L 
-                                val newPos = (currentPosition + (dragAmount.x * dragFactor).toLong())
-                                    .coerceIn(0L, duration)
-                                currentPosition = newPos
-                            }
+                            )
                         }
-                    )
-                }
+                    } else Modifier
+                )
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -649,53 +656,81 @@ private fun PlaybackSection(
                 )
             }
 
-            val remainingTime = remember(currentPosition, duration) {
-                val remaining = duration - currentPosition
-                val minutes = (remaining / 1000) / 60
-                val seconds = (remaining / 1000) % 60
-                String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-            }
+                val remainingTime = remember(currentPosition, duration) {
+                    val remaining = duration - currentPosition
+                    val minutes = (remaining / 1000) / 60
+                    val seconds = (remaining / 1000) % 60
+                    String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+                }
 
-            Surface(
-                shape = RoundedCornerShape(cornerRadius.dp),
-                color = artworkColors.secondary.copy(alpha = 0.8f),
-                modifier = Modifier
-                    .size(42.dp)
-                    .combinedClickable(
-                        onClick = { if (isPlaying) player?.pause() else player?.play() },
-                        onLongClick = { 
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel?.setShowTimerOnPlayButton(!showTimer) 
-                        }
-                    ),
-                tonalElevation = 4.dp
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    AnimatedContent(
-                        targetState = showTimer,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        label = "play_timer_switch"
-                    ) { isTimer ->
-                        if (isTimer) {
-                            Text(
-                                text = remainingTime,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = contentColorFor(artworkColors.secondary.copy(alpha = 0.8f)),
-                                modifier = Modifier.clearAndSetSemantics { 
-                                    contentDescription = "$remainingTime remaining" 
-                                }
-                            )
-                        } else {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                modifier = Modifier.size(28.dp),
-                                tint = contentColorFor(artworkColors.secondary.copy(alpha = 0.8f))
-                            )
+                if (playbackNavMode == com.igorthepadna.play_pause.PlaybackNavMode.BUTTONS) {
+                    IconButton(
+                        onClick = { viewModel?.skipPrevious(player) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.SkipPrevious,
+                            contentDescription = "Previous",
+                            modifier = Modifier.size(24.dp),
+                            tint = artworkColors.secondary
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(cornerRadius.dp),
+                    color = artworkColors.secondary.copy(alpha = 0.8f),
+                    modifier = Modifier
+                        .size(42.dp)
+                        .combinedClickable(
+                            onClick = { if (isPlaying) player?.pause() else player?.play() },
+                            onLongClick = { 
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel?.setShowTimerOnPlayButton(!showTimer) 
+                            }
+                        ),
+                    tonalElevation = 4.dp
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        AnimatedContent(
+                            targetState = showTimer,
+                            transitionSpec = { fadeIn() togetherWith fadeOut() },
+                            label = "play_timer_switch"
+                        ) { isTimer ->
+                            if (isTimer) {
+                                Text(
+                                    text = remainingTime,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = contentColorFor(artworkColors.secondary.copy(alpha = 0.8f)),
+                                    modifier = Modifier.clearAndSetSemantics { 
+                                        contentDescription = "$remainingTime remaining" 
+                                    }
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pause" else "Play",
+                                    modifier = Modifier.size(28.dp),
+                                    tint = contentColorFor(artworkColors.secondary.copy(alpha = 0.8f))
+                                )
+                            }
                         }
                     }
                 }
-            }
+
+                if (playbackNavMode == com.igorthepadna.play_pause.PlaybackNavMode.BUTTONS) {
+                    IconButton(
+                        onClick = { player?.seekToNext() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.SkipNext,
+                            contentDescription = "Next",
+                            modifier = Modifier.size(24.dp),
+                            tint = artworkColors.secondary
+                        )
+                    }
+                }
         }
     }
 }

@@ -557,7 +557,9 @@ private fun PlayerProgressSection(
     currentBitrate: String?,
     onSeek: (Float) -> Unit,
     onDragStart: () -> Unit,
-    onDragEnd: () -> Unit
+    onDragEnd: () -> Unit,
+    invertTimer: Boolean = false,
+    showBitrate: Boolean = true
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         SquigglySlider(
@@ -576,8 +578,6 @@ private fun PlayerProgressSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            var showRemainingTime by remember { mutableStateOf(false) }
-
             Text(
                 text = formatDuration(currentPosition),
                 style = MaterialTheme.typography.labelMedium,
@@ -587,41 +587,42 @@ private fun PlayerProgressSection(
             
             val bitrateStr = currentBitrate ?: "Loading..."
             
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .background(artworkColors.tertiary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-                    .border(1.dp, artworkColors.tertiary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
-                val qualityIcon = when {
-                    bitrateValue >= 1000 -> Icons.Rounded.Album
-                    bitrateValue >= 256 -> Icons.Rounded.HighQuality
-                    else -> Icons.Rounded.Sd
+            if (showBitrate) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .background(artworkColors.tertiary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                        .border(1.dp, artworkColors.tertiary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    val bitrateValue = bitrateStr.filter { it.isDigit() }.toIntOrNull() ?: 320
+                    val qualityIcon = when {
+                        bitrateValue >= 1000 -> Icons.Rounded.Album
+                        bitrateValue >= 256 -> Icons.Rounded.HighQuality
+                        else -> Icons.Rounded.Sd
+                    }
+                    Icon(
+                        imageVector = qualityIcon, 
+                        contentDescription = null, 
+                        modifier = Modifier.size(16.dp), 
+                        tint = artworkColors.tertiary
+                    )
+                    Text(
+                        text = bitrateStr.uppercase(), 
+                        style = MaterialTheme.typography.labelSmall, 
+                        fontWeight = FontWeight.Black, 
+                        color = artworkColors.tertiary,
+                        letterSpacing = 0.5.sp
+                    )
                 }
-                Icon(
-                    imageVector = qualityIcon, 
-                    contentDescription = null, 
-                    modifier = Modifier.size(16.dp), 
-                    tint = artworkColors.tertiary
-                )
-                Text(
-                    text = bitrateStr.uppercase(), 
-                    style = MaterialTheme.typography.labelSmall, 
-                    fontWeight = FontWeight.Black, 
-                    color = artworkColors.tertiary,
-                    letterSpacing = 0.5.sp
-                )
             }
 
             Text(
-                text = if (showRemainingTime) "-${formatDuration(duration - currentPosition)}" else formatDuration(duration),
+                text = if (invertTimer) "-${formatDuration(duration - currentPosition)}" else formatDuration(duration),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clickable { showRemainingTime = !showRemainingTime }
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -1079,6 +1080,8 @@ fun FullScreenPlayer(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 val currentBitrate by viewModel.currentBitrate.collectAsStateWithLifecycle()
+                val invertTimer by viewModel.invertFullScreenTimer.collectAsStateWithLifecycle()
+                val showBitrate by viewModel.showBitrateInfo.collectAsStateWithLifecycle()
                 PlayerProgressSection(
                     currentPosition = currentPosition,
                     duration = duration,
@@ -1091,7 +1094,9 @@ fun FullScreenPlayer(
                         currentPosition = newPos
                     },
                     onDragStart = { player.pause() },
-                    onDragEnd = { player.play() }
+                    onDragEnd = { player.play() },
+                    invertTimer = invertTimer,
+                    showBitrate = showBitrate
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))

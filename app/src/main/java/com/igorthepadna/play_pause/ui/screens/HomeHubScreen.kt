@@ -12,6 +12,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -28,6 +32,15 @@ import com.igorthepadna.play_pause.ui.components.AlbumCard
 import com.igorthepadna.play_pause.ui.components.ArtistCard
 import com.igorthepadna.play_pause.ui.components.UniversalSongItem
 import com.igorthepadna.play_pause.ui.screens.StatsSummaryView
+
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import com.igorthepadna.play_pause.data.FriendActivity
+import com.igorthepadna.play_pause.data.LastfmTrack
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun HomeHubScreen(
@@ -193,20 +206,231 @@ fun HomeHubScreen(
                     }
                 }
             }
+            HubFilter.FRIENDS -> {
+                FriendsHubView(
+                    viewModel = viewModel,
+                    contentPadding = PaddingValues(
+                        top = statusBarPadding + 80.dp,
+                        bottom = navigationBarPadding + 120.dp,
+                        start = 16.dp,
+                        end = 16.dp
+                    )
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun HubHeader(title: String) {
+fun FriendsHubView(
+    viewModel: MainViewModel,
+    contentPadding: PaddingValues
+) {
+    val friendsActivity by viewModel.lastfmFriendsActivity.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLastfmLoading.collectAsStateWithLifecycle()
+    val lastfmUsername by viewModel.lastfmUsername.collectAsStateWithLifecycle()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = contentPadding,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                HubHeader("Friend Activity", modifier = Modifier.weight(1f))
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                } else {
+                    IconButton(onClick = { viewModel.refreshLastfmFriends() }) {
+                        Icon(Icons.Rounded.Refresh, null)
+                    }
+                }
+            }
+        }
+
+        if (lastfmUsername.isBlank()) {
+            item {
+                EmptyFriendsState(
+                    message = "Link your Last.fm account in settings to see what your friends are listening to.",
+                    buttonText = "Go to Settings",
+                    onClick = { /* Handle navigation if needed */ }
+                )
+            }
+        } else if (friendsActivity.isEmpty() && !isLoading) {
+            item {
+                EmptyFriendsState(
+                    message = "No activity found. Make sure you have friends on Last.fm and they've been listening lately!",
+                    buttonText = "Refresh",
+                    onClick = { viewModel.refreshLastfmFriends() }
+                )
+            }
+        } else {
+            items(friendsActivity, key = { it.user.name }) { activity ->
+                FriendActivityCard(activity)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HubHeader(title: String, modifier: Modifier = Modifier) {
     Text(
         text = title,
         style = MaterialTheme.typography.headlineMedium.copy(
             fontWeight = FontWeight.Black,
             letterSpacing = (-1).sp
         ),
-        modifier = Modifier.padding(vertical = 12.dp)
+        modifier = modifier.padding(vertical = 12.dp)
     )
+}
+
+@Composable
+private fun EmptyFriendsState(
+    message: String,
+    buttonText: String,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 60.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Rounded.People,
+                null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+            )
+        }
+        Spacer(Modifier.height(24.dp))
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 32.dp)
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = onClick,
+            shape = RoundedCornerShape(20.dp),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+        ) {
+            Text(buttonText, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun FriendActivityCard(activity: FriendActivity) {
+    val isNowPlaying = activity.currentTrack?.attr?.nowplaying == "true"
+    
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = if (isNowPlaying) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainer,
+        border = if (isNowPlaying) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)) else null,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Friend Avatar
+            Box(contentAlignment = Alignment.BottomEnd) {
+                AsyncImage(
+                    model = activity.user.image.lastOrNull()?.url,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop,
+                    error = painterResource(com.igorthepadna.play_pause.R.drawable.ic_launcher_foreground)
+                )
+                if (isNowPlaying) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .background(Color.White, CircleShape)
+                            .padding(2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = activity.user.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black
+                )
+                
+                if (activity.currentTrack != null) {
+                    val track = activity.currentTrack
+                    Text(
+                        text = buildAnnotatedString {
+                            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)) {
+                                append(if (isNowPlaying) "Listening to: " else "Last played: ")
+                            }
+                            append("${track.name} by ${track.artist.name ?: track.artist.nameAttr}")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    if (!isNowPlaying && track.date?.uts != null) {
+                        val timeAgo = remember(track.date.uts) {
+                            val uts = track.date.uts.toLong() * 1000
+                            val diff = System.currentTimeMillis() - uts
+                            when {
+                                diff < 60000 -> "Just now"
+                                diff < 3600000 -> "${diff / 60000}m ago"
+                                diff < 86400000 -> "${diff / 3600000}h ago"
+                                else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(uts))
+                            }
+                        }
+                        Text(
+                            text = timeAgo,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                } else {
+                    Text(
+                        "No recent activity",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                }
+            }
+            
+            if (isNowPlaying) {
+                Icon(
+                    Icons.Rounded.Equalizer,
+                    null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
 }
 
 @Composable

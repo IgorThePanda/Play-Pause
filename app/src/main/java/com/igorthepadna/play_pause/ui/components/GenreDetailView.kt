@@ -111,111 +111,116 @@ fun GenreDetailView(
                 )
             }
 
-            if (viewMode == CategoryViewMode.GRID) {
-                gridItems(songs, key = { it.id }) { song ->
-                    val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
-                    AlbumCard(
-                        album = Album(
-                            id = song.albumId,
-                            title = song.title,
-                            artist = song.artist,
+            gridItems(songs, key = { it.id }, span = { GridItemSpan(if (viewMode == CategoryViewMode.GRID) 1 else effectiveColumns) }) { song ->
+                val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
+                val isPlaying = song.id == currentPlayingId
+                
+                when (viewMode) {
+                    CategoryViewMode.GRID -> {
+                        AlbumCard(
+                            album = Album(
+                                id = song.albumId,
+                                title = song.title,
+                                artist = song.artist,
+                                artworkUri = albumArt,
+                                songs = listOf(song)
+                            ),
+                            onClick = { onSongClick(song) },
+                            modifier = Modifier.padding(4.dp),
+                            columns = effectiveColumns,
+                            isPlaying = isPlaying,
+                            onNavigateToArtist = onNavigateToArtist
+                        )
+                    }
+                    CategoryViewMode.COMPACT -> {
+                        CompactGridItem(
+                            song = song,
+                            isPlaying = isPlaying,
+                            onClick = { onSongClick(song) },
+                            artworkUri = albumArt
+                        )
+                    }
+                    CategoryViewMode.DETAILED -> {
+                        DetailedSongItem(
+                            song = song,
+                            isPlaying = isPlaying,
+                            onClick = { onSongClick(song) },
+                            onPlayClick = { onSongClick(song) },
+                            onDetailsClick = { onSongDetailsClick(song) },
                             artworkUri = albumArt,
-                            songs = listOf(song)
-                        ),
-                        onClick = { onSongClick(song) },
-                        modifier = Modifier.padding(4.dp),
-                        columns = effectiveColumns,
-                        isPlaying = song.id == currentPlayingId
-                    )
-                }
-            } else {
-                item(span = { GridItemSpan(effectiveColumns) }) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                            .padding(8.dp)
-                    ) {
-                        songs.forEach { song ->
-                            val albumArt = albumArtMap[song.albumId] ?: song.albumArtUri
-                            if (viewMode == CategoryViewMode.COMPACT) {
-                                UniversalSongItem(
-                                    song = song,
-                                    isPlaying = song.id == currentPlayingId,
-                                    onClick = { onSongClick(song) },
-                                    onDetailsClick = { onSongDetailsClick(song) },
-                                    onSwipePlayNext = { onSwipePlayNext(song) },
-                                    onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
-                                    onNavigateToArtist = onNavigateToArtist,
-                                    showArtist = true,
-                                    artworkUri = albumArt
-                                )
-                            } else {
-                                UniversalSongItem(
-                                    song = song,
-                                    isPlaying = song.id == currentPlayingId,
-                                    onClick = { onSongClick(song) },
-                                    onDetailsClick = { onSongDetailsClick(song) },
-                                    onSwipePlayNext = { onSwipePlayNext(song) },
-                                    onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
-                                    onNavigateToArtist = onNavigateToArtist,
-                                    artworkUri = albumArt
-                                )
-                            }
-                        }
+                            onNavigateToArtist = onNavigateToArtist
+                        )
+                    }
+                    else -> {
+                        UniversalSongItem(
+                            song = song,
+                            isPlaying = isPlaying,
+                            onClick = { onSongClick(song) },
+                            onDetailsClick = { onSongDetailsClick(song) },
+                            onSwipePlayNext = { onSwipePlayNext(song) },
+                            onSwipeAddToPlaylist = { onSwipeAddToPlaylist(song) },
+                            onNavigateToArtist = onNavigateToArtist,
+                            artworkUri = albumArt
+                        )
                     }
                 }
             }
         }
 
 
-        // Top Controls (View Mode / Columns) - Floating
-        Row(
+        // Top Controls (View Mode / Columns) - Standardized
+        Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(top = 8.dp, end = 8.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(top = 20.dp, end = 24.dp)
         ) {
-            if (viewMode == CategoryViewMode.GRID) {
-                TextButton(
-                    onClick = {
-                        val nextMode = when (settings.gridSizeMode) {
-                            GridSizeMode.AUTO -> GridSizeMode.SMALL
-                            GridSizeMode.SMALL -> GridSizeMode.MEDIUM
-                            GridSizeMode.MEDIUM -> GridSizeMode.LARGE
-                            GridSizeMode.LARGE -> GridSizeMode.AUTO
-                        }
-                        viewModel?.updateViewModeSettings(categoryKey, settings.copy(gridSizeMode = nextMode))
-                    },
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Text(settings.gridSizeMode.toString(), fontWeight = FontWeight.Black, fontSize = 16.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (viewMode == CategoryViewMode.GRID) {
+                    FilledIconButton(
+                        onClick = {
+                            val nextMode = when (settings.gridSizeMode) {
+                                GridSizeMode.AUTO -> GridSizeMode.SMALL
+                                GridSizeMode.SMALL -> GridSizeMode.MEDIUM
+                                GridSizeMode.MEDIUM -> GridSizeMode.LARGE
+                                GridSizeMode.LARGE -> GridSizeMode.AUTO
+                            }
+                            viewModel?.updateViewModeSettings(categoryKey, settings.copy(gridSizeMode = nextMode))
+                        },
+                        modifier = Modifier.size(40.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
+                        )
+                    ) {
+                        Text(settings.gridSizeMode.toString(), fontWeight = FontWeight.Black, fontSize = 14.sp)
+                    }
+                    Spacer(Modifier.width(8.dp))
                 }
-            }
 
-            IconButton(onClick = {
-                val newMode = when (viewMode) {
-                    CategoryViewMode.DETAILED -> CategoryViewMode.COMPACT
-                    CategoryViewMode.COMPACT -> CategoryViewMode.GRID
-                    CategoryViewMode.GRID -> CategoryViewMode.DETAILED
-                }
-                viewModel?.updateViewModeSettings(categoryKey, settings.copy(viewMode = newMode))
-            }) {
-                Icon(
-                    when (viewMode) {
-                        CategoryViewMode.GRID -> Icons.Rounded.GridView
-                        CategoryViewMode.DETAILED -> Icons.Rounded.ViewStream
-                        CategoryViewMode.COMPACT -> Icons.Rounded.ViewHeadline
+                IconButton(
+                    onClick = {
+                        val newMode = when (viewMode) {
+                            CategoryViewMode.DETAILED -> CategoryViewMode.COMPACT
+                            CategoryViewMode.COMPACT -> CategoryViewMode.GRID
+                            CategoryViewMode.GRID -> CategoryViewMode.DETAILED
+                        }
+                        viewModel?.updateViewModeSettings(categoryKey, settings.copy(viewMode = newMode))
                     },
-                    contentDescription = "View Mode",
-                    modifier = Modifier.size(20.dp)
-                )
+                    modifier = Modifier.size(40.dp),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
+                    )
+                ) {
+                    Icon(
+                        when (viewMode) {
+                            CategoryViewMode.GRID -> Icons.Rounded.GridView
+                            CategoryViewMode.DETAILED -> Icons.Rounded.ViewStream
+                            CategoryViewMode.COMPACT -> Icons.Rounded.ViewHeadline
+                        },
+                        contentDescription = "View Mode",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 

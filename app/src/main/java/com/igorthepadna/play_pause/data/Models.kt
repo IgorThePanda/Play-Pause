@@ -10,6 +10,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -99,6 +100,7 @@ enum class LibraryFilter(val label: String, val icon: ImageVector) {
     ALBUMS("Albums", Icons.Rounded.Album),
     SONGS("Songs", Icons.Rounded.MusicNote),
     ARTISTS("Artists", Icons.Rounded.Person),
+    FRIENDS("Friends", Icons.Rounded.People),
     GENRES("Genres", Icons.Rounded.GraphicEq),
     PLAYLISTS("Playlists", Icons.AutoMirrored.Rounded.PlaylistPlay),
     FILE_SYSTEM("Files", Icons.Rounded.Folder)
@@ -106,6 +108,7 @@ enum class LibraryFilter(val label: String, val icon: ImageVector) {
 
 enum class HubFilter(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Rounded.Dashboard),
+    FRIENDS("Friends", Icons.Rounded.People),
     NEWS("News", Icons.AutoMirrored.Rounded.ShowChart),
     STATS("Stats", Icons.Rounded.GraphicEq)
 }
@@ -132,4 +135,60 @@ data class PinnedItem(
     val type: PinnedType,
     val mediaId: String,
     val addedAt: Long = System.currentTimeMillis()
+)
+
+@kotlinx.serialization.Serializable
+data class LastfmUser(
+    val name: String,
+    val realname: String? = null,
+    val image: List<LastfmImage> = emptyList(),
+    val url: String? = null,
+    val country: String? = null,
+    val registered: LastfmDate? = null
+)
+
+@kotlinx.serialization.Serializable
+data class LastfmImage(
+    @kotlinx.serialization.SerialName("#text") val url: String,
+    val size: String
+)
+
+@kotlinx.serialization.Serializable
+data class LastfmDate(
+    @kotlinx.serialization.SerialName("#text") val text: String? = null,
+    val uts: String? = null
+)
+
+@kotlinx.serialization.Serializable
+data class LastfmTrack(
+    val name: String,
+    val artist: LastfmArtistShort,
+    val album: LastfmAlbumShort? = null,
+    val image: List<LastfmImage> = emptyList(),
+    val date: LastfmDate? = null,
+    @kotlinx.serialization.SerialName("@attr") val attr: LastfmTrackAttr? = null
+)
+
+@kotlinx.serialization.Serializable
+data class LastfmArtistShort(
+    @kotlinx.serialization.SerialName("#text") val name: String? = null,
+    val mbid: String? = null,
+    val nameAttr: String? = null // Some responses have name directly
+)
+
+@kotlinx.serialization.Serializable
+data class LastfmAlbumShort(
+    @kotlinx.serialization.SerialName("#text") val title: String? = null,
+    val mbid: String? = null
+)
+
+@kotlinx.serialization.Serializable
+data class LastfmTrackAttr(
+    val nowplaying: String? = null
+)
+
+data class FriendActivity(
+    val user: LastfmUser,
+    val currentTrack: LastfmTrack? = null,
+    val lastUpdateTime: Long = System.currentTimeMillis()
 )
